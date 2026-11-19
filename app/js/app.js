@@ -21,7 +21,7 @@ import { icon } from './icons.js';
 import { phoneRow, renderPhoneList, phoneItemView, menuDialog, isPhone, phoneViewToggle, phoneUp } from './ui-phone.js';
 import { closeDropdown, setupTreeDnD, menuBar, treeContextMenu, applyLayoutSettings, splitter, shortcutsDialog, treeArrowKeys, treeDraggable } from './ui-pc.js';
 
-const APP_VERSION = '0.9.0';
+const APP_VERSION = '0.9.1';
 const $app = document.getElementById('app');
 
 /**
@@ -3249,7 +3249,7 @@ function aboutDialog() {
       h('p', { class: 'small' }, '自分専用のパスワード管理です。データは .kagi ファイル（Argon2id + AES-256-GCM）に暗号化して保存し、外部へ送信しません。'),
       h('p', { class: 'muted small' }, '.idm 形式のファイルは、読み込んで .kagi 形式に移すことができます。'),
       h('p', { class: 'muted small' }, `この端末の名前: ${settings.deviceName}`),
-      h('p', { class: 'small' }, '© 2026 ayamuo　MIT ライセンス（無料で自由に使用・改変・再配布できます。無保証で、作者はサポートや損害の責任を負いません）'),
+      h('p', { class: 'small' }, '© 2026 ayamuo　Kagibako ライセンス（無料で使用・改変・再配布できます。販売・有料での配布は禁止です。無保証で、作者はサポートや損害の責任を負いません）'),
       h('p', { class: 'muted small' }, `同梱しているソフトウェア：hash-wasm（MIT）、Public Suffix List（MPL 2.0）、${host.isAndroid ? 'AndroidX Webkit・Kotlin 標準ライブラリ（Apache 2.0）' : 'Microsoft WebView2 SDK（BSD 3-Clause）、.NET ランタイム（MIT）'}`)],
     buttons: [{ label: 'ライセンスの全文', value: 'licenses' }, { label: '閉じる', value: null, kind: 'primary' }],
   }).then((v) => (v === 'licenses' ? licensesDialog() : undefined));
@@ -3258,7 +3258,7 @@ function aboutDialog() {
 /** ライセンスの全文（Kagibako 本体と、同梱しているソフトウェア） */
 async function licensesDialog() {
   const LIST = [
-    ['Kagibako-MIT.txt', 'Kagibako（MIT）'],
+    ['Kagibako-LICENSE.txt', 'Kagibako（Kagibako ライセンス）'],
     ['hash-wasm-MIT.txt', 'hash-wasm（MIT）'],
     ['MPL-2.0.txt', 'Public Suffix List（MPL 2.0）'],
     // PC版とスマホ版で、同梱しているものだけを出す

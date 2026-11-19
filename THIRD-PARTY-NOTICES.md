@@ -1,6 +1,6 @@
 # 同梱しているほかのソフトウェア（Third-Party Notices）
 
-Kagibako 本体は MIT ライセンスです（[LICENSE](LICENSE)）。
+Kagibako 本体は「Kagibako ライセンス」です（[LICENSE](LICENSE)。無料での利用・改変・再配布は自由、販売・有料での配布は禁止）。
 次のソフトウェアやデータを、それぞれのライセンスに従って同梱しています。ライセンスの全文は [app/licenses](app/licenses) フォルダにあります。
 Kagibako を再配布するときは、このファイルと `app/licenses` フォルダも一緒に配布してください。
 

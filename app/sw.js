@@ -1,5 +1,5 @@
 // オフライン用 Service Worker（アプリ本体のみをキャッシュ。データファイルは一切扱わない）
-const CACHE = 'kagibako-v0.9.0';
+const CACHE = 'kagibako-v0.9.1';
 const ASSETS = [
   './',
   'index.html',
