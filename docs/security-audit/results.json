@@ -1,0 +1,56 @@
+[
+  {
+    "test": "cross-owner-domain",
+    "suffix": "co.id",
+    "allowed": [
+      "audit-victim.co.id"
+    ],
+    "desktopAllowed": [
+      "audit-victim.co.id"
+    ],
+    "incorrectlyAccepted": false
+  },
+  {
+    "test": "cross-owner-domain",
+    "suffix": "com.mx",
+    "allowed": [
+      "audit-victim.com.mx"
+    ],
+    "desktopAllowed": [
+      "audit-victim.com.mx"
+    ],
+    "incorrectlyAccepted": false
+  },
+  {
+    "test": "https-to-http",
+    "registered": "https://login.example.com/",
+    "destination": "http://login.example.com/",
+    "acceptedByDomainCheck": true,
+    "blockedAsInsecure": true,
+    "androidSchemeBlocked": true
+  },
+  {
+    "test": "unrelated-domain-control",
+    "rejected": true
+  },
+  {
+    "test": "stored-html-in-item-name",
+    "scriptExecuted": false,
+    "injectedImage": false
+  },
+  {
+    "test": "auto-lock-with-modal-after-one-hour",
+    "screen": "unlock",
+    "secretStillAvailable": false,
+    "dialogLeftOpen": false
+  },
+  {
+    "test": "abandoned-dialog-not-resumed-after-lock",
+    "resumed": false
+  },
+  {
+    "test": "auto-lock-without-modal-control",
+    "screen": "unlock",
+    "vaultCleared": true
+  }
+]

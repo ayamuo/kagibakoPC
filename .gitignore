@@ -1,0 +1,36 @@
+# ---- 秘密の情報（絶対に公開しない）----
+# Android の署名鍵とそのパスワード（失うと更新版を作れないので、別の場所に必ずバックアップ）
+*.jks
+*.keystore
+keystore.properties
+# 各PCの SDK の場所
+local.properties
+# 本物のデータ（テスト用 tests/fixtures 以外）
+*.kagi
+*.idm
+!tests/fixtures/*.idm
+*.csv
+
+# ---- ビルドで作られるもの ----
+dist/
+desktop/bin/
+desktop/obj/
+android/.gradle/
+android/build/
+android/app/build/
+android/logintest/build/
+*.apk
+*.aab
+
+# ---- エディタ・OS ----
+.idea/
+.vs/
+*.user
+.DS_Store
+Thumbs.db
+
+# 変更の記録の控え（手元だけに置く）
+*.bundle
+
+# Android版は別のリポジトリ（kagibakoPhone）。このフォルダの中に android として置いて使う
+/android/

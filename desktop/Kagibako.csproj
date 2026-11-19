@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- アドレスバーの読み取り（UI オートメーション）に必要 -->
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Kagibako</AssemblyName>
+    <RootNamespace>Kagibako</RootNamespace>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Product>Kagibako</Product>
+    <Version>0.9.0</Version>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- 配布用：.NET ランタイムを exe に組み込み、別途インストールしなくても動くようにする -->
+    <SelfContained>true</SelfContained>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <SatelliteResourceLanguages>ja;en</SatelliteResourceLanguages>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+    <!-- WebView2 パッケージ同梱の WPF 用 DLL に由来する警告（WinForms 版では使わないので無害） -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
+  </ItemGroup>
+
+  <!-- 画面とロジックはスマホ版と共通の ../app をそのまま同梱する -->
+  <ItemGroup>
+    <Content Include="..\app\**\*" LinkBase="app" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- 再配布の条件：ライセンスと同梱物の一覧を、配布するフォルダにも入れる -->
+    <Content Include="..\LICENSE;..\THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
