@@ -6,11 +6,12 @@ import * as store from './store.js';
 import * as host from './host.js';
 import * as D from './domain.js';
 import { HOWTO, SHORTCUTS } from './help.js';
+import { isPhone } from './ui-phone.js';
 import {
-  editLocked, toggleReadOnly, renderTree, sortSelected, select, selected, touch, openOfficialSite, addFolder, addItem, duplicateItem, moveNode, deleteNode, copyText, save, lock, menuGroups, runMenu, printDialog, generatorDialog, autoTypeItem, helpDialog, helpTabs, openHelpTab, S, settings, $tree, $detail, $layout, $mbar,
+  editLocked, toggleReadOnly, renderTree, sortSelected, select, selected, touch, openOfficialSite, addFolder, addItem, duplicateItem, moveNode, moveTarget, deleteNode, copyText, save, lock, menuGroups, runMenu, printDialog, generatorDialog, autoTypeItem, helpDialog, helpTabs, openHelpTab, S, settings, $tree, $detail, $layout, $mbar,
 } from './app.js';
 
-// ---- ツリーのドラッグ＆ドロップで移動（PC のマウス操作。スマホは「移動先…」で） ----
+// ---- ツリーのドラッグ＆ドロップで移動（PC のマウス操作。スマホは一覧の長押しドラッグ（ui-phone.js）か「移動先…」で） ----
 const DRAG_TYPE = 'application/x-kagibako-node'; // 他のアプリへ文字として落ちないよう、独自の種類だけで運ぶ
 let treeDrag = null; // { id, target: { targetId, pos }, openId, openAt }
 const treeDraggable = () => !settings.readOnly && !S.search.trim();
@@ -83,9 +84,10 @@ function closeDropdown() { openDrop?.close(); }
 
 /**
  * items: [{ label, key, checked, disabled, run }] または '-'
- * 位置は anchor（ボタンの下）か、x/y（右クリックした位置）
+ * 位置は anchor（ボタンの下）か、x/y（右クリックした位置）。
+ * avoid（長押しした行の四角）を渡すと、その下（入らなければ上）に離して出す＝指の下にメニューをかぶせない
  */
-function dropdown(items, { anchor = null, x = 0, y = 0, onClose = null, onSide = null } = {}) {
+function dropdown(items, { anchor = null, x = 0, y = 0, avoid = null, onClose = null, onSide = null } = {}) {
   closeDropdown();
   let closed = false;
   const menu = h('div', { class: 'dropdown', role: 'menu' }, items.map((it) => (it === '-'
@@ -98,8 +100,17 @@ function dropdown(items, { anchor = null, x = 0, y = 0, onClose = null, onSide =
   const r = menu.getBoundingClientRect();
   let left = x, top = y;
   if (anchor) { const a = anchor.getBoundingClientRect(); left = a.left; top = a.bottom; }
+  if (avoid) {
+    const GAP = 8;
+    left = avoid.left;
+    const below = innerHeight - 4 - (avoid.bottom + GAP), above = avoid.top - GAP - 4;
+    if (r.height <= below) top = avoid.bottom + GAP;
+    else if (r.height <= above) top = avoid.top - GAP - r.height;
+    else top = below >= above ? innerHeight - r.height - 4 : 4; // どちらにも入らないときは広いほうへ寄せる
+  }
   if (left + r.width > innerWidth - 4) left = Math.max(4, innerWidth - r.width - 4);
-  if (top + r.height > innerHeight - 4) top = Math.max(4, anchor ? innerHeight - r.height - 4 : top - r.height);
+  if (!avoid && top + r.height > innerHeight - 4) top = Math.max(4, anchor ? innerHeight - r.height - 4 : top - r.height);
+  top = Math.max(4, top);
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
 
@@ -164,13 +175,20 @@ function menuBar() {
   return bar;
 }
 
-/** ツリーの右クリックメニュー */
+/** ツリーの右クリックメニュー（スマホは一覧の長押し） */
 function treeContextMenu(ev) {
   if (S.screen !== 'main') return;
-  const nodeEl = ev.target.closest('.node');
+  const phone = isPhone();
   ev.preventDefault();
-  if (nodeEl?.dataset.id && S.sel !== nodeEl.dataset.id) select(nodeEl.dataset.id);
-  const e = selected();
+  // PC：押したものを選んでから、選んでいるものについてのメニューを出す。
+  // スマホ：選ぶとアイテムの画面に切り替わってしまうので選ばずに、長押ししたもの（一覧の行・タイル・フォルダ）をそのまま使う
+  const nodeEl = ev.target.closest(phone ? '[data-id]' : '.node');
+  let e;
+  if (phone) e = nodeEl?.dataset.id ? M.findById(S.vault, nodeEl.dataset.id) : null;
+  else {
+    if (nodeEl?.dataset.id && S.sel !== nodeEl.dataset.id) select(nodeEl.dataset.id);
+    e = selected();
+  }
   const ro = !!settings.readOnly;
   let x = ev.clientX, y = ev.clientY;
   if (!x && !y) { const r = (nodeEl || ev.target).getBoundingClientRect(); x = r.left + 20; y = r.bottom; } // キーボード（Shift+F10）から
@@ -187,17 +205,19 @@ function treeContextMenu(ev) {
   items.push(
     { label: '新しいアイテム', disabled: ro, run: addItem },
     { label: '新しいフォルダ', disabled: ro, run: () => addFolder(false) });
-  if (e?.node.type === 'folder') items.push({ label: 'この中にフォルダを作る', disabled: ro, run: () => addFolder(true) });
+  // 「この中にフォルダを作る」「名前順に並べ替え」は選んでいるフォルダが相手なので PC だけ（スマホはフォルダの「…」から）
+  if (e?.node.type === 'folder' && !phone) items.push({ label: 'この中にフォルダを作る', disabled: ro, run: () => addFolder(true) });
   if (e && nodeEl) {
     items.push('-');
     if (it) items.push({ label: '複製', disabled: ro, run: () => duplicateItem(it, e.parent) });
     items.push(
-      { label: '上へ', disabled: ro, run: () => moveNode(e.node, e.parent, -1) },
-      { label: '下へ', disabled: ro, run: () => moveNode(e.node, e.parent, 1) });
-    if (e.node.type === 'folder') items.push({ label: '名前順に並べ替え', disabled: ro, run: sortSelected });
+      { label: '上へ', disabled: ro || moveTarget(e.node, e.parent, -1) < 0, run: () => moveNode(e.node, e.parent, -1) },
+      { label: '下へ', disabled: ro || moveTarget(e.node, e.parent, 1) < 0, run: () => moveNode(e.node, e.parent, 1) });
+    if (e.node.type === 'folder' && !phone) items.push({ label: '名前順に並べ替え', disabled: ro, run: sortSelected });
     items.push('-', { label: '削除', disabled: ro, run: () => deleteNode(e.node, e.parent) });
   }
-  dropdown(items, { x, y });
+  // スマホ：長押しした行・タイルの下（入らなければ上）に出す。指の下に出すと、そのまま動かしてドラッグしにくいため
+  dropdown(items, phone && nodeEl ? { avoid: nodeEl.getBoundingClientRect() } : { x, y });
 }
 
 /** ツリーの幅（ドラッグで変更）と、入力欄の最大幅 */
@@ -269,7 +289,7 @@ addEventListener('keydown', (e) => {
     if (k === 'n') return run(() => (e.shiftKey ? addFolder(false) : addItem()));
     if (k === 'g') return run(() => generatorDialog()); // 生成だけ（選んでいるアイテムには触れない）
     if (k === 'e') return run(toggleReadOnly);
-    if (k === 'p') return run(printDialog);
+    if (k === 'p' && !host.isAndroid) return run(printDialog); // Android の画面（WebView）は印刷できないので、キーボードをつないでいても受けない
     if (k === 'd' && item) return run(() => duplicateItem(item, sel.parent));
     if (k === 'b' && item) return run(() => copyText(item.account, item.accountName || 'ID'));
     if (k === 'u' && item) return run(() => openOfficialSite(item));

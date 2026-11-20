@@ -78,8 +78,21 @@ export async function recordHead(key, name, snap) {
   return rec;
 }
 
+/**
+ * アプリで開いたことを記録する（中身が前と同じで recordHead しないときも）。
+ * 自動入力で最初に選ぶデータを「最後に開いたファイル」にするため
+ */
+export async function markOpened(key) {
+  const rec = await getKnown(key);
+  if (!rec) return;
+  rec.openedAt = new Date().toISOString();
+  await put('known', key, rec);
+}
+
+/** 新しい順（最後に記録した・開いたうちの新しいほう） */
 export async function listKnown() {
-  return (await all('known')).map((e) => e.value).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  const t = (k) => ((k.openedAt || '') > (k.updatedAt || '') ? k.openedAt : k.updatedAt || '');
+  return (await all('known')).map((e) => e.value).sort((a, b) => t(b).localeCompare(t(a)));
 }
 
 export const deleteKnown = (key) => del('known', key);

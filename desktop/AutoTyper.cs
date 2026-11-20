@@ -17,7 +17,7 @@ internal static class AutoTyper
         ["HOME"] = (0x24, true), ["END"] = (0x23, true), ["BACKSPACE"] = (0x08, false), ["DELETE"] = (0x2E, true),
         ["ESC"] = (0x1B, false),
     };
-    private const ushort VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_V = 0x56;
+    private const ushort VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_V = 0x56, VK_A = 0x41;
 
     public sealed class Step
     {
@@ -105,6 +105,16 @@ internal static class AutoTyper
                             userTyped = false;
                             idOnlyPage = !InputFields.LastPageHadPassword && InputFields.IsBrowserWindow(target);
                             submittedAfterId = false;
+                        }
+                        // 欄に前の文字が残っていると、打った文字が後ろに付け足されて ID・パスワードが正しくなくなる。
+                        // ID 欄・パスワード欄だと確かめた欄にだけ、打つ前に中身を全部選んでおく（打った文字で置き換わる）。
+                        // 欄が見つからなかったときは押さない（欄の外で Ctrl+A を押すと、ページ全体などを選んでしまうため）
+                        if (r is InputFields.Result.Moved or InputFields.Result.AlreadyThere)
+                        {
+                            EnsureForeground(target);
+                            KeyDown(VK_CONTROL);
+                            try { SendVk(VK_A, false); } finally { KeyUp(VK_CONTROL); }
+                            await Task.Delay(Math.Max(keyDelayMs, 30));
                         }
                         EnsureForeground(target);
                         break;

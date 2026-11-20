@@ -75,7 +75,7 @@ export function abandonAllModals() {
  * モーダル。buttons: [{label, value, kind:'primary'|'danger'|'', close:true}]
  * 戻り値: 押されたボタンの value（Esc/背景クリックは null）
  */
-export function modal({ title, body = [], buttons = [{ label: '閉じる', value: null }], wide = false, onOpen = null, dismissable = true }) {
+export function modal({ title, body = [], buttons = [{ label: '閉じる', value: null }], wide = false, cls = '', onOpen = null, dismissable = true }) {
   return new Promise((resolve) => {
     const root = document.getElementById('modal-root');
     const prevFocus = document.activeElement;
@@ -98,7 +98,7 @@ export function modal({ title, body = [], buttons = [{ label: '閉じる', value
     const onKey = (e) => {
       if (e.key === 'Escape' && dismissable) { e.stopPropagation(); close(null); }
     };
-    const dialog = h('div', { class: `modal${wide ? ' wide' : ''}`, role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+    const dialog = h('div', { class: `modal${wide ? ' wide' : ''}${cls ? ` ${cls}` : ''}`, role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
       h('div', { class: 'modal-head' }, h('h2', {}, title), dismissable ? h('button', { class: 'icon-btn', 'aria-label': '閉じる', onclick: () => close(null) }, '✕') : null),
       h('div', { class: 'modal-body' }, body),
       buttons.length ? h('div', { class: 'modal-foot' }, buttons.map((b) => h('button', {

@@ -18,10 +18,14 @@ import { BRANDS } from './brands.js';
 import { GUIDE, DISCLAIMER, DISCLAIMER_VERSION } from './guide.js';
 import { HOWTO, FAQ, SHORTCUTS, forHost } from './help.js';
 import { icon } from './icons.js';
-import { phoneRow, renderPhoneList, phoneItemView, menuDialog, isPhone, phoneViewToggle, phoneUp } from './ui-phone.js';
+import { phoneRow, renderPhoneList, phoneItemView, menuDialog, isPhone, phoneViewToggle, phoneUp, setupPhoneDrag } from './ui-phone.js';
 import { closeDropdown, setupTreeDnD, menuBar, treeContextMenu, applyLayoutSettings, splitter, shortcutsDialog, treeArrowKeys, treeDraggable } from './ui-pc.js';
 
 const APP_VERSION = '0.9.1';
+// スマホ版を Play ストアで公開したら true にする（「このアプリをレビューする」を出し、紹介の URL をストアのページにする）
+const PLAY_STORE_LISTED = false;
+const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=jp.kagibako';
+const INTRO_URL = 'https://ayamuo.github.io/kagibako_official/'; // ストアで公開するまでの紹介先（公式サイトのスマホアプリのページ）
 const $app = document.getElementById('app');
 
 /**
@@ -142,10 +146,11 @@ async function boot() {
     if (document.visibilityState === 'hidden' && settings.lockOnHide && S.screen === 'main') lock();
   });
   addEventListener('beforeunload', (e) => { if (S.dirty) { e.preventDefault(); e.returnValue = ''; } });
-  // PC版：パスワード欄に入ったら日本語入力をオフにする（Windows では、パスワード欄でも日本語入力が効いてしまうことがある）
+  // PC版：パスワード欄と、URL・メールなど日本語を打たない欄（data-ascii）に入ったら日本語入力をオフにする
+  // （Windows では、パスワード欄でも日本語入力が効いてしまうことがある）
   if (host.isDesktop) {
     document.addEventListener('focusin', (e) => {
-      if (e.target instanceof HTMLInputElement && e.target.type === 'password') host.call('imeOff').catch(() => {});
+      if (e.target instanceof HTMLInputElement && (e.target.type === 'password' || e.target.dataset.ascii)) host.call('imeOff').catch(() => {});
     });
   }
   if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
@@ -522,6 +527,8 @@ async function afterOpen({ afterLock, password }) {
     await offerDraftRestore();
     return;
   }
+  // 開いたことを記録（自動入力で最初に選ぶデータを、最後に開いたファイルにする）
+  await store.markOpened(S.knownKey).catch(() => {});
   const known = await store.getKnown(S.knownKey);
   const hash = await M.contentHash(S.vault);
   const status = S.kind === 'kagi' ? classifyVault(S.header, known) : classifyLegacy(hash, known);
@@ -735,6 +742,7 @@ function renderMain() {
       $detail.querySelector('.title-input')?.select();
     } }, '＋') : null);
   $tree.addEventListener('contextmenu', treeContextMenu);
+  setupPhoneDrag($tree); // スマホ：長押しのあと指を動かすとドラッグで並べ替え・移動（PC の画面では何もしない）
   setupTreeDnD($tree);
   $tree.addEventListener('keydown', treeArrowKeys);
   $mbar = menuBar();
@@ -991,8 +999,9 @@ function folderView({ node, parent }) {
     ro ? null : h('div', { class: 'row wrap' },
       ibtn('add-item', 'このフォルダに新しいアイテム', addItem),
       ibtn('add-folder', 'このフォルダの中にフォルダを作る', () => addFolder(true)),
-      ibtn('move-up', '上へ移動', () => moveNode(node, parent, -1)),
-      ibtn('move-down', '下へ移動', () => moveNode(node, parent, 1)),
+      // スマホはこの画面から一覧が見えず、入れ替わったのが分からないので、一覧の長押しメニューの「上へ」「下へ」で動かす
+      isPhone() ? null : ibtn('move-up', '上へ移動', () => moveNode(node, parent, -1)),
+      isPhone() ? null : ibtn('move-down', '下へ移動', () => moveNode(node, parent, 1)),
       parent ? ibtn('move-top', '最上位へ移動', () => moveFolderToTop(node, parent)) : null,
       ibtn('sort-az', 'このフォルダの中を名前順に並べ替え', sortSelected),
       moveToSelect(node),
@@ -1033,12 +1042,14 @@ function moveToSelect(node) {
 function itemView({ node: it, parent, path }) {
   const ro = !!settings.readOnly;
   const v = settings.view;
+  let refreshFieldBtns = () => {}; // 下で、公式サイト・メール・ファイルのボタンを作ってから中身を入れる
   const set = (k) => (ev) => {
     if (ro) return;
     it[k] = ev.target.value;
     touch(it);
     if (k === 'name') { renderTree(); refreshSitePanel(); }
     if (k === 'url') refreshSitePanel();
+    if (k === 'url' || k === 'email' || k === 'file') refreshFieldBtns();
   };
   const textInput = (k, attrs = {}) => h('input', { type: 'text', value: it[k] ?? '', oninput: set(k), readonly: ro, spellcheck: 'false', autocomplete: 'off', ...attrs });
   const copyBtn = (k, label) => ibtn('copy', `${label}をコピー`, () => copyText(it[k], label), { cls: 'small' });
@@ -1099,7 +1110,7 @@ function itemView({ node: it, parent, path }) {
   refreshHistoryBtn();
 
   const simpleRow = (k, label, ...extra) => h('div', { class: 'frow' },
-    h('span', { class: 'flabel' }, label), textInput(k, { 'aria-label': label }), h('div', { class: 'fbtns' }, copyBtn(k, label), typeBtn(k, label), extra));
+    h('span', { class: 'flabel' }, label), textInput(k, { 'aria-label': label, ...asciiInput(k) }), h('div', { class: 'fbtns' }, copyBtn(k, label), typeBtn(k, label), extra));
 
   const bits = estimateBits(it.password);
   const [slabel, scls] = strengthLabel(bits);
@@ -1201,11 +1212,20 @@ function itemView({ node: it, parent, path }) {
 
   const sendMail = () => sendMailTo(it.email);
   const openFileField = () => openFileOf(it);
+  // 欄が空のあいだは押せないボタン。入力に合わせて押せる・押せないを切り替える（set から呼ぶ）
+  const siteBtn = h('button', { class: 'btn ib', onclick: openSite, disabled: !D.hostOf(it.url) }, icon('open-site'), '公式サイトを開く');
+  const mailBtn = ibtn('mail', 'メールソフトで新規メールを作る', sendMail, { cls: 'small', disabled: !(it.email || '').trim() });
+  const fileBtn = host.isDesktop ? ibtn('open-file', 'このファイルを開く', openFileField, { cls: 'small', disabled: !it.file }) : null;
+  refreshFieldBtns = () => {
+    siteBtn.disabled = !D.hostOf(it.url);
+    mailBtn.disabled = !(it.email || '').trim();
+    if (fileBtn) fileBtn.disabled = !it.file;
+  };
 
   return h('div', { class: 'pane item-pane' },
     h('div', { class: 'muted small crumbs' }, path.join(' / ') || '最上位'),
     h('div', { class: 'item-actions' },
-      h('button', { class: 'btn ib', onclick: openSite, disabled: !D.hostOf(it.url) }, icon('open-site'), '公式サイトを開く'),
+      siteBtn,
       host.isDesktop ? h('button', { class: 'btn primary ib', onclick: () => autoTypeItem(it, { useHotkeyTarget: false }) }, icon('autotype'), '自動入力') : null,
       host.isDesktop ? targetLabel : null),
     h('div', { class: 'frow title-row' }, h('span', { class: 'flabel' }, 'タイトル'), textInput('name', { class: 'title-input', 'aria-label': 'タイトル' }), h('div', { class: 'fbtns' })),
@@ -1218,8 +1238,8 @@ function itemView({ node: it, parent, path }) {
     v.hideSerial ? null : simpleRow('serialNumber', 'シリアル番号'),
     v.hideUrl ? null : simpleRow('url', 'URL（公式サイト）', ibtn('open-site', '公式サイトを開く', openSite, { cls: 'small' })),
     v.hideUrl ? null : sitePanel,
-    v.hideEmail ? null : simpleRow('email', 'メール', ibtn('mail', 'メールソフトで新規メールを作る', sendMail, { cls: 'small', disabled: !it.email })),
-    v.hideFile ? null : simpleRow('file', 'ファイル', host.isDesktop ? ibtn('open-file', 'このファイルを開く', openFileField, { cls: 'small', disabled: !it.file }) : null),
+    v.hideEmail ? null : simpleRow('email', 'メール', mailBtn),
+    v.hideFile ? null : simpleRow('file', 'ファイル', fileBtn),
     v.hideDates ? null : h('div', { class: 'frow dates' },
       h('label', {}, h('span', { class: 'flabel' }, '発行日'), h('input', { type: 'date', value: it.issueDate || '', readonly: ro, oninput: set('issueDate') })),
       expiryField(it, ro)),
@@ -1227,8 +1247,9 @@ function itemView({ node: it, parent, path }) {
     h('label', { class: 'field' }, h('span', {}, 'メモ'), h('textarea', { rows: settings.density === 'compact' ? 4 : 6, oninput: set('comment'), readonly: ro, spellcheck: 'false' }, it.comment ?? '')),
     ro ? null : h('div', { class: 'row wrap' },
       ibtn('duplicate', 'このアイテムを複製（Ctrl+D）', () => duplicateItem(it, parent)),
-      ibtn('move-up', '上へ移動', () => moveNode(it, parent, -1)),
-      ibtn('move-down', '下へ移動', () => moveNode(it, parent, 1)),
+      // スマホは一覧の長押しメニューの「上へ」「下へ」で動かす（この画面からは一覧が見えないため）
+      isPhone() ? null : ibtn('move-up', '上へ移動', () => moveNode(it, parent, -1)),
+      isPhone() ? null : ibtn('move-down', '下へ移動', () => moveNode(it, parent, 1)),
       moveToSelect(it),
       ibtn('delete', 'このアイテムを削除', () => deleteNode(it, parent), { cls: 'danger' })),
     h('p', { class: 'muted small' }, `更新: ${fmtDateTime(it.modified)}`));
@@ -1255,7 +1276,7 @@ async function sendMailTo(address) {
   const a = (address || '').trim();
   if (!a) return;
   try {
-    if (host.isDesktop) await host.call('mailto', { address: a });
+    if (host.isDesktop || host.isAndroid) await host.call('mailto', { address: a });
     else window.open(`mailto:${encodeURIComponent(a).replace('%40', '@')}`, '_self');
   } catch (e) { toast(errText(e), 5000); }
 }
@@ -1343,8 +1364,9 @@ async function openOfficialSite(it) {
   const url = scheme ? u : `https://${u}`;
   const warns = D.hostWarnings(url);
   if (warns.length && !(await confirmDialog('このアドレスを開きますか？', `${url}\n\n注意: ${warns.join('\n・')}\n\n登録した URL が本当に公式サイトのものか確認してください。`, '開く'))) return;
-  if (host.isDesktop) {
+  if (host.isDesktop || host.isAndroid) {
     // PC版：設定でブラウザを指定していればそのブラウザで、なければ既定のブラウザで開く
+    // Android版：アプリ側からブラウザを開く（確認ダイアログを挟むと window.open は止められるため）
     try { await host.call('openUrl', { url, browser: settings.browserPath || '' }); } catch (e) { toast(errText(e), 6000); }
     return;
   }
@@ -1429,11 +1451,20 @@ function duplicateItem(it, parent) {
   select(c.id);
 }
 
+/** 上へ・下へで入れ替える相手の位置（ない場合は -1）。
+ * スマホの一覧はフォルダを先・アイテムを後に並べるので、スマホでは同じ種類どうしだけで入れ替える（見た目の順と合わせる） */
+function moveTarget(node, parent, dir) {
+  const list = M.containerOf(S.vault, parent);
+  let j = list.indexOf(node) + dir;
+  if (isPhone()) while (j >= 0 && j < list.length && list[j].type !== node.type) j += dir;
+  return j >= 0 && j < list.length ? j : -1;
+}
+
 function moveNode(node, parent, dir) {
   if (editLocked()) return;
   const list = M.containerOf(S.vault, parent);
-  const i = list.indexOf(node), j = i + dir;
-  if (j < 0 || j >= list.length) return;
+  const i = list.indexOf(node), j = moveTarget(node, parent, dir);
+  if (i < 0 || j < 0) return;
   [list[i], list[j]] = [list[j], list[i]];
   touch(node);
   renderTree();
@@ -1452,6 +1483,13 @@ async function deleteNode(node, parent) {
   S.sel = parent?.id ?? null;
   markDirty();
   renderTree(); renderDetail();
+}
+
+/** 日本語を打たない欄（URL・メール・郵便番号・電話）：スマホは英字・数字のキーボードを出し、PC は欄に入ったら日本語入力を切る（入力欄の focusin で見る） */
+const ASCII_INPUT = { url: 'url', email: 'email', 'e-mail1': 'email', 'e-mail2': 'email', 'e-mail3': 'email', zip1: 'tel', zip2: 'tel', tel1: 'tel', tel2: 'tel' };
+function asciiInput(k) {
+  const mode = ASCII_INPUT[k];
+  return mode ? { inputmode: mode, autocapitalize: 'off', spellcheck: 'false', dataset: { ascii: '1' } } : {};
 }
 
 // ---------------- クリップボード ----------------
@@ -1954,6 +1992,8 @@ function menuGroups() {
       ['officialList', `主要サービスの公式ドメイン一覧（${BRANDS.length} 件）`],
       ['guide', '安全ガイド（よくある手口と対策）'],
       ['disclaimer', '免責事項'],
+      // スマホ版だけ：紹介・レビュー（作業の邪魔をする割り込み表示はせず、ここに置くだけ）
+      ...(host.isAndroid ? ['-', ['shareApp', 'このアプリを友達に紹介する'], ...(PLAY_STORE_LISTED ? [['reviewApp', 'このアプリをレビューする']] : [])] : []),
       ['about', 'Kagibako について'],
     ]],
   ];
@@ -2030,6 +2070,13 @@ async function runMenu(k) {
     case 'guide': return guideDialog();
     case 'disclaimer': return disclaimerDialog(false);
     case 'about': return aboutDialog();
+    case 'shareApp':
+      return host.call('share', {
+        title: 'Kagibako（鍵箱）',
+        text: `パスワード管理アプリ「Kagibako（鍵箱）」を紹介します。データは暗号化して手元に保存、偽サイトでは自動入力しません。無料・広告なしです。\n${PLAY_STORE_LISTED ? PLAY_STORE_URL : INTRO_URL}`,
+      }).catch((e) => toast(`共有の画面を開けませんでした（${errText(e)}）`, 5000));
+    case 'reviewApp':
+      return host.call('openStore', {}).catch((e) => toast(`ストアを開けませんでした（${errText(e)}）`, 5000));
     case 'topMost':
       settings.topMost = !settings.topMost;
       await store.setSetting('settings', { ...settings });
@@ -2159,7 +2206,7 @@ async function profileDialog() {
   const p = S.vault.profile;
   const ro = !!settings.readOnly;
   const row = (k, label, obj, typable = false) => h('div', { class: 'frow' }, h('span', { class: 'flabel' }, label),
-    h('input', { type: 'text', value: obj[k] ?? '', readonly: ro, oninput: (e) => { if (ro) return; obj[k] = e.target.value; markDirty(); } }),
+    h('input', { type: 'text', value: obj[k] ?? '', readonly: ro, ...asciiInput(k), oninput: (e) => { if (ro) return; obj[k] = e.target.value; markDirty(); } }),
     h('div', { class: 'fbtns' }, ibtn('copy', `${label}をコピー`, () => copyText(obj[k], label), { cls: 'small' }),
       typable && host.isDesktop ? ibtn('autotype', `${label}を直前のウィンドウに入力`, () => autoTypeText(obj[k], label), { cls: 'small' }) : null));
   await modal({
@@ -2520,6 +2567,7 @@ async function settingsDialog() {
   const ok = await modal({
     title: '設定',
     wide: true,
+    cls: 'settings-modal', // タブを切り替えても窓の大きさが変わらないよう、高さを固定する（app.css）
     body: [
       tabBar,
       panels,
@@ -3332,7 +3380,7 @@ async function autofillCard({ where = 'settings' } = {}) {
       ? h('p', { class: 'small' }, '有効です。ログイン欄をタップすると「Kagibako で入力」が表示されます。Chrome・Brave などのブラウザでは、ブラウザ側の設定で「他のサービスを使用して自動入力」を選ぶ必要があります（使い方 →「ブラウザやアプリでログインする」）。')
       : [h('p', { class: 'small' }, 'Kagibako を「自動入力サービス」に設定すると、ヤフーなどのアプリやブラウザのログイン欄に、ボタン一つで ID・パスワードを入力できます。'),
         h('button', { class: 'btn primary', onclick: () => host.call('enableAutofill').catch((e) => toast(e.message)) }, '自動入力サービスに設定する')],
-    where === 'settings' ? h('label', { class: 'check' }, autoPick, 'そのサイト（アプリ）に合うアイテムが1つだけなら、選ぶ画面を出さずにすぐ入力する') : null,
+    where === 'settings' ? h('label', { class: 'check' }, autoPick, 'そのサイト（アプリ）に合うアイテムが1つだけなら、選ぶ画面を出さずにすぐ入力する（この端末にファイルが2つ以上あるときは、取り違えを防ぐため、いつも選ぶ画面を出します）') : null,
     h('p', { class: 'muted small' }, '自動入力には、この端末で最後に開いた（保存した）版のデータを使います。'),
     where === 'start' ? h('button', { class: 'link small', onclick: async () => { await store.setSetting('autofillCardHidden', true); card.remove(); } }, '今後この案内を表示しない（設定からいつでも設定できます）') : null);
   return card;
@@ -3345,7 +3393,7 @@ if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
 
 // スマホの画面（ui-phone.js）・PC の画面（ui-pc.js）から使う
 export {
-  pwHint, ibtn, $detail, $layout, $mbar, $tree, S, addFolder, addItem, autoTypeItem, charSpans, copyText, deleteNode, duplicateItem, editLocked, generatorDialog, helpDialog, helpTabs, lock, menuGroups, moveNode, openHelpTab, openOfficialSite, passwordHistoryDialog, printDialog, renderDetail, renderMain, renderTree, runMenu, save, select, selected, settings, sortSelected, toggleReadOnly, touch,
+  pwHint, ibtn, $detail, $layout, $mbar, $tree, S, addFolder, addItem, autoTypeItem, charSpans, copyText, deleteNode, duplicateItem, editLocked, generatorDialog, helpDialog, helpTabs, lock, menuGroups, moveNode, moveTarget, openHelpTab, openOfficialSite, passwordHistoryDialog, printDialog, renderDetail, renderMain, renderTree, runMenu, save, select, selected, settings, sortSelected, toggleReadOnly, touch,
 };
 
 boot();

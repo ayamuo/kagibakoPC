@@ -1,6 +1,6 @@
 // Kagibako — スマホの画面（Android版、または幅の狭い画面）
 // 一覧 → アイテム の2段の画面と、☰ メニュー。暗号・ファイル形式・データの扱いは app.js や各モジュールと共通
-import { h, clear, modal, fmtDateTime } from './ui.js';
+import { h, clear, modal, fmtDateTime, toast } from './ui.js';
 import { icon } from './icons.js';
 import * as M from './model.js';
 import * as host from './host.js';
@@ -9,8 +9,9 @@ import * as BC from './brandcheck.js';
 import * as store from './store.js';
 import {
   renderMain, renderTree, select, renderDetail, openOfficialSite, passwordHistoryDialog, copyText, menuGroups, runMenu, charSpans, S, settings, $tree,
-  ibtn, pwHint,
+  ibtn, pwHint, touch, editLocked,
 } from './app.js';
+import { closeDropdown } from './ui-pc.js';
 
 // ---- スマホ向けの画面（Android版、または幅の狭い画面） ----
 const phoneMQ = typeof matchMedia === 'function' ? matchMedia('(max-width: 560px)') : null;
@@ -126,12 +127,12 @@ function phoneFolderEntry(f) {
   const label = f.name || '(名前なし)';
   const aria = `フォルダ「${label}」を開く（アイテム ${n} 件）`;
   if (tileMode()) {
-    return h('button', { class: 'm-tile m-folder', 'aria-label': aria, onclick: () => openPhoneFolder(f.id) },
+    return h('button', { class: 'm-tile m-folder', 'aria-label': aria, dataset: { id: f.id }, onclick: () => openPhoneFolder(f.id) },
       h('span', { class: 'm-av m-av-folder', 'aria-hidden': 'true' }, icon('folder')),
       h('span', { class: 'm-tile-name' }, label),
       h('span', { class: 'm-tile-count', 'aria-hidden': 'true' }, String(n)));
   }
-  return h('button', { class: 'm-row m-folder', 'aria-label': aria, onclick: () => openPhoneFolder(f.id) },
+  return h('button', { class: 'm-row m-folder', 'aria-label': aria, dataset: { id: f.id }, onclick: () => openPhoneFolder(f.id) },
     h('span', { class: 'm-ico', 'aria-hidden': 'true' }, icon('folder')),
     h('span', { class: 'm-main' }, h('span', { class: 'm-name' }, label),
       h('span', { class: 'm-sub' }, subs ? `アイテム ${n} 件・フォルダ ${subs}` : `アイテム ${n} 件`)),
@@ -145,11 +146,12 @@ function renderPhoneCrumbs(chain) {
   if (!chain.length) { clear(box); box.hidden = true; return; }
   box.hidden = false;
   const here = chain[chain.length - 1];
-  const parts = [h('button', { class: 'm-crumb', onclick: () => openPhoneFolder(null) }, 'すべて')];
+  // data-folder：ドラッグ中の落とし先（そのフォルダへ移す。'' は最上位）
+  const parts = [h('button', { class: 'm-crumb', dataset: { folder: '' }, onclick: () => openPhoneFolder(null) }, 'すべて')];
   chain.forEach((f, i) => {
     parts.push(h('span', { class: 'm-crumb-sep', 'aria-hidden': 'true' }, '›'));
     const last = i === chain.length - 1;
-    parts.push(h('button', { class: `m-crumb${last ? ' here' : ''}`, 'aria-current': last ? 'page' : null, onclick: () => openPhoneFolder(f.id) }, f.name || '(名前なし)'));
+    parts.push(h('button', { class: `m-crumb${last ? ' here' : ''}`, 'aria-current': last ? 'page' : null, dataset: last ? null : { folder: f.id }, onclick: () => openPhoneFolder(f.id) }, f.name || '(名前なし)'));
   });
   const path = h('div', { class: 'm-crumb-path' }, parts);
   clear(box,
@@ -171,6 +173,225 @@ function renderPhoneList() {
     ? h('p', { class: 'muted pad' }, settings.readOnly ? 'このフォルダは空です' : 'このフォルダは空です。右下の［＋］で、このフォルダにアイテムを作れます')
     : h('p', { class: 'muted pad' }, settings.readOnly ? 'アイテムがありません' : '右下の［＋］から追加できます');
   clear($tree, entries.length ? h('div', { class: tileMode() ? 'm-tiles' : 'm-items' }, entries) : empty);
+}
+
+// ---- 一覧のドラッグ：長押しでメニューが出たあと、指を離さずに動かすとドラッグに変わる（Android のホーム画面と同じ） ----
+// ・フォルダの上で離す → そのフォルダの中へ。上の「すべて › …」の上で離す → そのフォルダへ
+// ・「すべて › …」の上で少し止める → 一覧がその階層に変わる（別のフォルダへ移すため）。変わったあとは、
+//   フォルダの上で離す → その中へ、それ以外の所で離す → 今見ているフォルダへ
+// ・それ以外 → 同じ種類どうし（フォルダどうし・アイテムどうし）で並べ替え（一覧はフォルダが先・アイテムが後のため）
+// ・長押しの前に指を動かしたときは、ふつうのスクロール
+const DRAG_SLOP = 10; // これ以上動いたら「動かした」とみなす（px）
+const EDGE = 64; // 画面の上下の端からこの幅に入ると自動でスクロール（px）
+const SPRING_MS = 700; // 「すべて › …」の上でこの時間止まると、その階層を開く
+// { id, el, x0, y0, x, y, armed, dragging, ghost, start, target, raf, moved: 階層を変えた, hover: 止まっている「すべて › …」, spring: そのタイマー, blocked: アイテムを最上位へ置こうとした }
+let pd = null;
+
+const isFolderEl = (el) => el.classList.contains('m-folder');
+const entryEls = () => [...$tree.querySelectorAll('.m-tiles > [data-id], .m-items > [data-id]')];
+const BLOCKED_MSG = 'アイテムは「すべて」の直下には置けません。フォルダの中に入れてください';
+
+/** そのフォルダ（null は最上位）へ移せるか。今入っているフォルダへは移さない（何も変わらないため） */
+function canDropInto(to) {
+  const src = M.findById(S.vault, pd.id);
+  if (!src || (src.parent?.id ?? null) === to) return false;
+  return M.canMoveNode(S.vault, pd.id, to, to ? 'inside' : null);
+}
+
+/** 上の「すべて › …」のうち、落とせる所だけ点線で示す（アイテムは最上位に置けない、など） */
+function markCrumbs() {
+  for (const c of document.querySelectorAll('.m-crumb[data-folder]')) c.classList.toggle('m-drop-ok', canDropInto(c.dataset.folder || null));
+}
+
+function setupPhoneDrag(tree) {
+  tree.addEventListener('touchstart', (ev) => {
+    if (!isPhone() || ev.touches.length !== 1 || settings.readOnly || S.search.trim()) return;
+    const el = ev.target.closest('[data-id]');
+    if (!el || !tree.contains(el)) return;
+    const t = ev.touches[0];
+    endDrag();
+    pd = { id: el.dataset.id, el, x0: t.clientX, y0: t.clientY, x: t.clientX, y: t.clientY, armed: false, dragging: false };
+    addEventListener('touchmove', onDragMove, { passive: false });
+    addEventListener('touchend', onDragEnd);
+    addEventListener('touchcancel', onDragEnd);
+  }, { passive: true });
+  // 長押しのメニュー（treeContextMenu）が出たら、ここから動かせばドラッグになる
+  tree.addEventListener('contextmenu', (ev) => { if (pd && pd.el.contains(ev.target)) pd.armed = true; }, true);
+}
+
+function onDragMove(ev) {
+  if (!pd) return;
+  const t = ev.touches[0];
+  pd.x = t.clientX; pd.y = t.clientY;
+  const moved = Math.hypot(pd.x - pd.x0, pd.y - pd.y0) > DRAG_SLOP;
+  if (!pd.dragging) {
+    if (!moved) return;
+    if (!pd.armed || !ev.cancelable || editLocked()) { endDrag(); return; } // 長押しの前に動いた＝スクロール
+    startDrag();
+  }
+  ev.preventDefault(); // ドラッグ中は画面をスクロールさせない（端での自動スクロールは別）
+  dragOver();
+  autoScroll();
+}
+
+function startDrag() {
+  closeDropdown();
+  const r = pd.el.getBoundingClientRect();
+  const ghost = pd.el.cloneNode(true);
+  ghost.classList.add('m-drag-ghost');
+  ghost.removeAttribute('data-id');
+  ghost.setAttribute('aria-hidden', 'true');
+  ghost.style.left = `${r.left}px`; ghost.style.top = `${r.top}px`;
+  ghost.style.width = `${r.width}px`; ghost.style.height = `${r.height}px`;
+  document.body.append(ghost);
+  pd.el.classList.add('m-drag-src');
+  pd.ghost = ghost;
+  pd.dragging = true;
+  pd.start = entryEls().indexOf(pd.el);
+  markCrumbs();
+}
+
+function clearDropOn() {
+  for (const el of document.querySelectorAll('.m-drop-on, .m-crumb-wait')) el.classList.remove('m-drop-on', 'm-crumb-wait');
+}
+
+/** 「すべて › …」の上で止まったら、少し待ってその階層を開く */
+function springOn(crumb) {
+  if (crumb === pd.hover) return;
+  clearTimeout(pd.spring);
+  pd.hover = crumb;
+  if (crumb) pd.spring = setTimeout(() => springTo(crumb.dataset.folder || null), SPRING_MS);
+}
+
+function springTo(id) {
+  if (!pd?.dragging) return;
+  pd.hover = null;
+  if (!pd.moved) {
+    // 押した要素は、一覧を描き直しても指の動き（touchmove）を受け取り続けるよう、消さずに隠して残す
+    pd.moved = true;
+    pd.el.classList.add('m-drag-held');
+    document.body.append(pd.el);
+  }
+  openPhoneFolder(id);
+  markCrumbs();
+  dragOver();
+}
+
+/** 指の下にあるものから、落とし先（フォルダの中・上のフォルダ・並べ替え）を決める */
+function dragOver() {
+  pd.ghost.style.transform = `translate(${pd.x - pd.x0}px, ${pd.y - pd.y0}px)`;
+  clearDropOn();
+  pd.target = null;
+  pd.blocked = false;
+  const under = document.elementFromPoint(pd.x, pd.y);
+  const crumb = under?.closest('.m-crumb[data-folder]') || null;
+  springOn(crumb);
+  if (!under) return;
+  if (crumb) {
+    const to = crumb.dataset.folder || null;
+    if (canDropInto(to)) { crumb.classList.add('m-drop-on'); pd.target = { into: to, el: crumb }; }
+    else { crumb.classList.add('m-crumb-wait'); pd.blocked = !to; } // 止まっていれば開く（離しても移せない）
+    return;
+  }
+  const over = under.closest('[data-id]');
+  if (pd.moved) {
+    // 階層を変えたあと：フォルダの上ならその中へ、上の欄より下のほかの所なら今見ているフォルダへ（並べ替えはしない）
+    if (over && $tree.contains(over) && isFolderEl(over) && canDropInto(over.dataset.id)) {
+      over.classList.add('m-drop-on'); pd.target = { into: over.dataset.id, el: over };
+      return;
+    }
+    const top = document.querySelector('.side-tools')?.getBoundingClientRect().bottom ?? 0;
+    if (pd.y <= top) return;
+    const here = S.phoneFolder || null;
+    if (canDropInto(here)) { $tree.classList.add('m-drop-on'); pd.target = { into: here, el: $tree }; } else pd.blocked = !here;
+    return;
+  }
+  if (!over || over === pd.el || !$tree.contains(over)) return;
+  const dragFolder = isFolderEl(pd.el);
+  const list = entryEls();
+  const forward = list.indexOf(pd.el) < list.indexOf(over); // 後ろ（右・下）へ動かしているか
+  if (isFolderEl(over)) {
+    // フォルダの上：アイテムなら中へ。
+    // フォルダどうしは、真ん中なら中へ・向かっている先の端まで行ったら並べ替え（手前の端では何もしない。
+    // 手前の端で入れ替えると、入れたいフォルダが指の下から逃げてしまうため）
+    const r = over.getBoundingClientRect();
+    const pos = tileMode() ? (pd.x - r.left) / r.width : (pd.y - r.top) / r.height; // タイルは横、リストは縦の位置（0〜1）
+    const reorder = dragFolder && (forward ? pos > 0.75 : pos < 0.25);
+    if (!reorder) {
+      if ((!dragFolder || (pos >= 0.25 && pos <= 0.75)) && canDropInto(over.dataset.id)) {
+        over.classList.add('m-drop-on'); pd.target = { into: over.dataset.id, el: over };
+      }
+      return;
+    }
+  }
+  if (isFolderEl(over) !== dragFolder) return; // 種類が違うものとは入れ替えない
+  // 並べ替え：触れたものの位置へ動かす（ほかはよける）
+  if (forward) over.after(pd.el); else over.before(pd.el);
+}
+
+/** 画面の上下の端に指があるあいだ、少しずつスクロールする */
+function autoScroll() {
+  if (pd.raf) return;
+  const step = () => {
+    pd.raf = 0;
+    if (!pd?.dragging) return;
+    const top = document.querySelector('.side-tools')?.getBoundingClientRect().bottom ?? 0;
+    const dy = pd.y < top + EDGE ? -12 : pd.y > innerHeight - EDGE ? 12 : 0;
+    if (!dy) return;
+    scrollBy(0, dy);
+    dragOver();
+    pd.raf = requestAnimationFrame(step);
+  };
+  pd.raf = requestAnimationFrame(step);
+}
+
+function onDragEnd(ev) {
+  if (!pd) return;
+  const d = pd;
+  if (!d.dragging) { endDrag(); return; } // 動かさずに離した：長押しのメニューはそのまま
+  ev.preventDefault?.();
+  // ドラッグのあとに来る「押した」で、アイテムやフォルダが開かないようにする
+  const eat = (e) => { e.preventDefault(); e.stopPropagation(); };
+  addEventListener('click', eat, true);
+  setTimeout(() => removeEventListener('click', eat, true), 400);
+  const node = M.findById(S.vault, d.id)?.node;
+  let msg = '';
+  if (ev.type === 'touchend' && node && !editLocked()) {
+    if (d.target) {
+      if (M.moveNodeTo(S.vault, d.id, d.target.into, d.target.into ? 'inside' : null)) {
+        touch(node);
+        const dest = d.target.into ? M.findById(S.vault, d.target.into).node.name || '(名前なし)' : 'すべて';
+        msg = `「${dest}」に移動しました`;
+      }
+    } else if (d.blocked) {
+      msg = BLOCKED_MSG;
+    } else if (!d.moved && entryEls().indexOf(d.el) !== d.start) {
+      // 並べ替え：隣の同じ種類のものの前（なければ後ろ）へ
+      const same = (el) => el && el.dataset.id && isFolderEl(el) === isFolderEl(d.el);
+      const next = d.el.nextElementSibling, prev = d.el.previousElementSibling;
+      const ok = same(next) ? M.moveNodeTo(S.vault, d.id, next.dataset.id, 'before')
+        : same(prev) ? M.moveNodeTo(S.vault, d.id, prev.dataset.id, 'after') : false;
+      if (ok) touch(node);
+    }
+  }
+  endDrag();
+  renderTree(); // 動かなかったとき（取り消し・決まりに反する所で離した）も元の並びに戻す
+  if (msg) toast(msg);
+}
+
+function endDrag() {
+  removeEventListener('touchmove', onDragMove, { passive: false });
+  removeEventListener('touchend', onDragEnd);
+  removeEventListener('touchcancel', onDragEnd);
+  if (!pd) return;
+  if (pd.raf) cancelAnimationFrame(pd.raf);
+  clearTimeout(pd.spring);
+  pd.ghost?.remove();
+  if (pd.moved) pd.el.remove(); // 隠して残しておいた要素（一覧はもう描き直してある）
+  else pd.el.classList.remove('m-drag-src');
+  for (const c of document.querySelectorAll('.m-drop-ok')) c.classList.remove('m-drop-ok');
+  clearDropOn();
+  pd = null;
 }
 
 /** スマホのアイテム画面：入っている欄だけを大きく表示し、各欄に［コピー］ */
@@ -230,4 +451,4 @@ async function menuDialog() {
   if (picked) await runMenu(picked);
 }
 
-export { phoneRow, renderPhoneList, phoneItemView, menuDialog, isPhone, phoneViewToggle, avatarOf, phoneUp, openPhoneFolder };
+export { phoneRow, renderPhoneList, phoneItemView, menuDialog, isPhone, phoneViewToggle, avatarOf, phoneUp, openPhoneFolder, setupPhoneDrag };

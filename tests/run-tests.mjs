@@ -603,5 +603,21 @@ await test('使い回しをまとめ、暗証番号らしいものは分ける',
   assert.equal(HL.reuseCount([e('A', 'x1'), e('B', 'x1'), e('C', 'y')], { id: 'A', password: 'x1' }), 1);
 });
 
+console.log('端末内の控え（自動入力で最初に選ぶデータ）');
+await test('最後に開いたファイルが先頭に来る（中身が同じで記録し直さないときも）', async () => {
+  const St = await appJs('store.js');
+  const snap = (r) => ({ revId: `r${r}`, revision: r, savedAt: '', device: '', contentHash: '', fileText: '' });
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+  await St.recordHead('kagi:mine', 'mine.kagi', snap(1));
+  await tick();
+  await St.recordHead('kagi:sample', 'sample.kagi', snap(1)); // あとから初めて開いたサンプル
+  assert.equal((await St.listKnown())[0].key, 'kagi:sample');
+  await tick();
+  await St.markOpened('kagi:mine'); // 自分のファイルを開き直した（中身が同じなので recordHead はされない）
+  assert.equal((await St.listKnown())[0].key, 'kagi:mine');
+  await St.markOpened('kagi:none'); // 記録のないファイルでは何もしない
+  assert.equal((await St.listKnown()).length, 2);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
