@@ -235,7 +235,7 @@ Kagibako は独自の「Kagibako ライセンス」で公開しています。�
 
 ### 公式の配布場所
 
-Kagibako の公式の配布場所は、この GitHub リポジトリ（https://github.com/ayamuo/kagibakoPC）の Releases だけです。ほかの場所で配られている「Kagibako」は、改変されている可能性があります。
+Kagibako の公式の配布場所は、この GitHub リポジトリ（[github.com/ayamuo/kagibakoPC](https://github.com/ayamuo/kagibakoPC)）の [Releases](https://github.com/ayamuo/kagibakoPC/releases) だけです。ほかの場所で配られている「Kagibako」は、改変されている可能性があります。
 
 ### セキュリティの問題を見つけたら
 
