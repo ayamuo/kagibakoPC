@@ -746,6 +746,12 @@ body.detail-open .fab { display: none; }
 .m-head .m-av { width: 44px; height: 44px; font-size: 1.25rem; }
 .m-head .m-title { margin: 0; }
 .m-viewtoggle { flex: none; }
+/* スマホの右下の［＋］で出る「追加」の選択 */
+.m-add-choices { display: grid; gap: .6rem; }
+.m-add-choice { font: inherit; color: inherit; text-align: left; display: flex; align-items: center; gap: .8rem; width: 100%; padding: .8rem .9rem; background: none; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; touch-action: manipulation; }
+.m-add-choice:active, .m-add-choice:hover { background: var(--accent-soft); }
+.m-add-choice .ic { width: 1.8rem; height: 1.8rem; flex: none; }
+.m-add-text { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
 /* タイルのアイコンの色（白い文字との差 4.9:1 以上） */
 .m-av.av-0 { background: #1F6FB2; }
 .m-av.av-1 { background: #0F766E; }
@@ -862,6 +868,30 @@ body:not(.phone) .topbar .title { min-width: 6rem; }
 /* hidden の付いた要素は、ほかの指定（.btn.ib の display など）より優先して隠す */
 [hidden] { display: none !important; }
 .license-text { white-space: pre-wrap; font-size: .8rem; max-height: 50vh; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .6rem .8rem; margin-top: .5rem; }
+
+/* ---- スマホ（Android版の画面全体・スマホの画面）：ボタンや説明の文字を長押しで選べないようにする ----
+   長押しのメニュー・ドラッグとぶつかり、誤操作のもとになるため。値は［コピー］で写す。入力欄は今まで通り選べる */
+html.android body, body.phone { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+html.android input, html.android textarea, body.phone input, body.phone textarea { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+
+/* ---- スマホの ☰ メニュー：上によく使うもの（絵付きのボタン）、下に見出しごとにたたんだ残り ---- */
+.m-menu-label { margin: 0 0 .35rem; font-size: .8rem; color: var(--muted); }
+.m-quick { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; margin-bottom: 1rem; }
+.m-quick-btn { font: inherit; color: inherit; background: none; border: 1px solid var(--line); border-radius: 10px; padding: .6rem .15rem .5rem; display: flex; flex-direction: column; align-items: center; gap: .3rem; cursor: pointer; touch-action: manipulation; }
+.m-quick-btn .ic { width: 1.6rem; height: 1.6rem; }
+.m-quick-btn span { font-size: .72rem; line-height: 1.25; text-align: center; word-break: keep-all; overflow-wrap: anywhere; }
+.m-quick-btn:active, .m-quick-btn:hover { background: var(--accent-soft); }
+.m-quick-btn:disabled { opacity: .4; }
+.m-menu-secs { border-top: 1px solid var(--line); }
+.m-menu-sec { border-bottom: 1px solid var(--line); }
+.m-menu-sec > summary { list-style: none; display: flex; align-items: center; gap: .6rem; padding: .75rem .25rem; cursor: pointer; }
+.m-menu-sec > summary::-webkit-details-marker { display: none; }
+.m-menu-sec > summary::after { content: '›'; color: var(--muted); font-size: 1.2rem; transform: rotate(90deg); transition: transform .15s; }
+.m-menu-sec[open] > summary::after { transform: rotate(-90deg); }
+.m-menu-title { flex: 1; }
+.m-menu-count { font-size: .75rem; color: var(--muted); }
+.m-menu-sec .menu-item { display: block; width: 100%; padding-left: 2.2rem; }
+.m-menu-sec .menu-item:last-child { border-bottom: 0; }
 
 /* ---- Android の自動入力：ファイルが2つ以上あるとき、使うファイルを目立たせる（取り違え防止） ---- */
 .af-file { border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-soft); padding: .5rem .7rem; }

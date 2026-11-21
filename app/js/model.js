@@ -106,6 +106,15 @@ export function newFolder(name = '新しいフォルダ') {
   return { type: 'folder', id: uuid(), name, open: true, selected: false, children: [], created: now, modified: now };
 }
 
+/** 同じ階層のフォルダと名前が重ならない新しいフォルダの名前（新しいフォルダ → 新しいフォルダ (2) → …） */
+export function uniqueFolderName(list, base = '新しいフォルダ') {
+  const used = new Set(list.filter((n) => n.type === 'folder').map((n) => n.name));
+  if (!used.has(base)) return base;
+  let i = 2;
+  while (used.has(`${base} (${i})`)) i++;
+  return `${base} (${i})`;
+}
+
 export function newItem(vault, name = '新しいアイテム') {
   const now = Date.now();
   const today = todayISO();

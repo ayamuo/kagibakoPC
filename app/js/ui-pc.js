@@ -8,7 +8,7 @@ import * as D from './domain.js';
 import { HOWTO, SHORTCUTS } from './help.js';
 import { isPhone } from './ui-phone.js';
 import {
-  editLocked, toggleReadOnly, renderTree, sortSelected, select, selected, touch, openOfficialSite, addFolder, addItem, duplicateItem, moveNode, moveTarget, deleteNode, copyText, save, lock, menuGroups, runMenu, printDialog, generatorDialog, autoTypeItem, helpDialog, helpTabs, openHelpTab, S, settings, $tree, $detail, $layout, $mbar,
+  editLocked, toggleReadOnly, renderTree, sortSelected, select, selected, touch, openOfficialSite, addFolder, addItem, duplicateItem, moveNode, moveTarget, startRename, phoneNewItem, deleteNode, copyText, save, lock, menuGroups, runMenu, printDialog, generatorDialog, autoTypeItem, helpDialog, helpTabs, openHelpTab, S, settings, $tree, $detail, $layout, $mbar,
 } from './app.js';
 
 // ---- ツリーのドラッグ＆ドロップで移動（PC のマウス操作。スマホは一覧の長押しドラッグ（ui-phone.js）か「移動先…」で） ----
@@ -202,13 +202,18 @@ function treeContextMenu(ev) {
     if (host.isDesktop) items.push({ label: '自動入力', run: () => autoTypeItem(it, { useHotkeyTarget: false }) });
     items.push('-');
   }
+  // スマホは長押ししたものを選ばないので、作る場所をここで決める：
+  //   アイテム … 長押ししたのがフォルダならその中、アイテムなら今見ているフォルダの中
+  //   フォルダ … 今見ている場所（☰ メニューの「新しいフォルダ」と同じ）
   items.push(
-    { label: '新しいアイテム', disabled: ro, run: addItem },
-    { label: '新しいフォルダ', disabled: ro, run: () => addFolder(false) });
+    { label: '新しいアイテム', disabled: ro, run: phone ? () => phoneNewItem(e?.node.type === 'folder' ? e.node.id : S.phoneFolder) : addItem },
+    { label: '新しいフォルダ', disabled: ro, run: phone ? () => runMenu('newFolder') : () => addFolder(false) });
   // 「この中にフォルダを作る」「名前順に並べ替え」は選んでいるフォルダが相手なので PC だけ（スマホはフォルダの「…」から）
   if (e?.node.type === 'folder' && !phone) items.push({ label: 'この中にフォルダを作る', disabled: ro, run: () => addFolder(true) });
   if (e && nodeEl) {
     items.push('-');
+    // スマホ：名前の欄がある画面を探さなくても、ここから名前を変えられるように（PC は F2・メニューの「名前を変える」）
+    if (phone) items.push({ label: '名前を変える', disabled: ro, run: () => startRename(e.node.id) });
     if (it) items.push({ label: '複製', disabled: ro, run: () => duplicateItem(it, e.parent) });
     items.push(
       { label: '上へ', disabled: ro || moveTarget(e.node, e.parent, -1) < 0, run: () => moveNode(e.node, e.parent, -1) },

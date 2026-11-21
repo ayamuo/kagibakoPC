@@ -27,6 +27,8 @@ const PLAY_STORE_LISTED = false;
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=jp.kagibako';
 const INTRO_URL = 'https://ayamuo.github.io/kagibako_official/'; // ストアで公開するまでの紹介先（公式サイトのスマホアプリのページ）
 const $app = document.getElementById('app');
+// Android版：画面全体で、ボタンや説明の文字を長押しで選べないようにする（app.css の html.android）
+if (host.isAndroid) document.documentElement.classList.add('android');
 
 /**
  * アイコンのボタン。label はマウスを乗せたとき・読み上げで出る名前。
@@ -691,7 +693,7 @@ let $tree, $detail, $layout, $mbar;
 /** 閲覧のみなら知らせて true を返す（編集系の操作の先頭で使う） */
 function editLocked() {
   if (!settings.readOnly) return false;
-  toast(isPhone() ? '「閲覧のみ」になっています。書き換えるときは ☰ メニュー →「編集」の「閲覧のみにする」を外してください'
+  toast(isPhone() ? '「閲覧のみ」になっています。書き換えるときは ☰ メニュー →「表示」の「閲覧のみにする」を外してください'
     : '「閲覧のみ」になっています。画面右上の［✏️ 編集］を押すと書き換えられます（Ctrl+E）');
   return true;
 }
@@ -734,13 +736,8 @@ function renderMain() {
       $tree,
       splitter()),
     $detail,
-    isPhone() && !ro ? h('button', { class: 'fab', 'aria-label': '新しいアイテム', title: '新しいアイテム', onclick: () => {
-      S.sel = S.phoneFolder || null; // 今開いているフォルダの中に作る
-      addItem();
-      S.mobileEdit = true; // 新しいアイテムは、すぐ入力できる画面で開く
-      renderDetail();
-      $detail.querySelector('.title-input')?.select();
-    } }, '＋') : null);
+    // スマホ：追加の入口はこの［＋］1つ。押すと「アイテム／フォルダ」を選ぶ画面が出る
+    isPhone() && !ro ? h('button', { class: 'fab', 'aria-label': '追加（アイテム・フォルダ）', title: '追加（アイテム・フォルダ）', onclick: phoneAddDialog }, '＋') : null);
   $tree.addEventListener('contextmenu', treeContextMenu);
   setupPhoneDrag($tree); // スマホ：長押しのあと指を動かすとドラッグで並べ替え・移動（PC の画面では何もしない）
   setupTreeDnD($tree);
@@ -978,7 +975,7 @@ function overview() {
       h('ul', {},
         ...(isPhone() ? [
           h('li', {}, '一覧のアイテムを押すと、ID・パスワードが大きく表示され、［コピー］で貼り付けられます。'),
-          h('li', {}, '右下の［＋］で新しいアイテム、☰ メニューでそのほかの操作ができます。'),
+          h('li', {}, '右下の［＋］でアイテム・フォルダの追加、☰ メニューでそのほかの操作ができます。'),
           h('li', {}, '変更したら［保存］。ファイル名の左の ● は未保存の印です。'),
         ] : [
           h('li', {}, '左のツリーからアイテムを選ぶと、ここに中身が表示されます。'),
@@ -997,8 +994,9 @@ function folderView({ node, parent }) {
   return h('div', { class: 'pane' },
     h('label', { class: 'field' }, h('span', {}, 'フォルダ名'), name),
     ro ? null : h('div', { class: 'row wrap' },
-      ibtn('add-item', 'このフォルダに新しいアイテム', addItem),
-      ibtn('add-folder', 'このフォルダの中にフォルダを作る', () => addFolder(true)),
+      // スマホ：アイテムは［＋］と同じくすぐ入力できる画面で開く。フォルダは名前を聞いて作り、この画面のまま（app.js の phoneNewFolder）
+      ibtn('add-item', 'このフォルダに新しいアイテム', () => (isPhone() ? phoneNewItem(node.id) : addItem())),
+      ibtn('add-folder', 'このフォルダの中にフォルダを作る', () => (isPhone() ? phoneNewFolder(node.id) : addFolder(true))),
       // スマホはこの画面から一覧が見えず、入れ替わったのが分からないので、一覧の長押しメニューの「上へ」「下へ」で動かす
       isPhone() ? null : ibtn('move-up', '上へ移動', () => moveNode(node, parent, -1)),
       isPhone() ? null : ibtn('move-down', '下へ移動', () => moveNode(node, parent, 1)),
@@ -1411,11 +1409,14 @@ function addFolder(sub) {
   if (editLocked()) return;
   const f = M.newFolder();
   const e = selected();
-  if (sub && e?.node.type === 'folder') { e.node.children.push(f); e.node.open = true; }
+  let list;
+  if (sub && e?.node.type === 'folder') { list = e.node.children; e.node.open = true; }
   else if (e) {
     const parentOfFolder = e.node.type === 'folder' ? e.parent : e.parent ? M.findById(S.vault, e.parent.id)?.parent : null;
-    M.containerOf(S.vault, parentOfFolder).push(f);
-  } else S.vault.children.push(f);
+    list = M.containerOf(S.vault, parentOfFolder);
+  } else list = S.vault.children;
+  f.name = M.uniqueFolderName(list); // 同じ階層に「新しいフォルダ」があれば (2)・(3)… を付ける
+  list.push(f);
   markDirty();
   select(f.id);
   $detail.querySelector('input')?.select();
@@ -1439,6 +1440,77 @@ function addItem() {
   $detail.querySelector('.title-input')?.select();
 }
 
+/**
+ * スマホ：右下の［＋］。押しただけでは作らず、何を追加するかを選んでもらう（どこにできるかも書く）。
+ * 一番上ではアイテムを置けないので、最初のフォルダ（なければ「未分類」を作って）の中に作ると先に伝える
+ */
+async function phoneAddDialog() {
+  if (editLocked()) return;
+  const nameOf = (f) => `「${f.name || '(名前なし)'}」`;
+  const here = S.phoneFolder ? M.findById(S.vault, S.phoneFolder)?.node : null;
+  const first = S.vault.children.find((c) => c.type === 'folder');
+  const itemWhere = here ? `${nameOf(here)}の中に作ります`
+    : first ? `${nameOf(first)}の中に作ります（一番上にはアイテムを置けないため）`
+      : '「未分類」フォルダを作って、その中に作ります（一番上にはアイテムを置けないため）';
+  const folderWhere = here ? `${nameOf(here)}の中に作ります` : '一番上（すべて）に作ります';
+  const choice = (ic, label, where) => h('button', { class: 'm-add-choice', type: 'button' }, icon(ic), h('span', { class: 'm-add-text' }, h('strong', {}, label), h('span', { class: 'muted small' }, where)));
+  const itemBtn = choice('add-item', 'アイテムを追加', itemWhere);
+  const folderBtn = choice('add-folder', 'フォルダを追加', folderWhere);
+  const v = await modal({
+    title: '追加',
+    body: [h('div', { class: 'm-add-choices' }, itemBtn, folderBtn)],
+    buttons: [{ label: 'キャンセル', value: null }],
+    onOpen: (_, close) => { itemBtn.onclick = () => close('item'); folderBtn.onclick = () => close('folder'); },
+  });
+  if (v === 'item') phoneNewItem(S.phoneFolder);
+  else if (v === 'folder') await phoneNewFolder(S.phoneFolder);
+}
+
+/**
+ * スマホ：そのフォルダ（null なら最上位）の中に、名前を聞いてフォルダを作る。画面は移らない
+ * （作ったフォルダの画面に移ると、そこの［フォルダに＋］を続けて押したときに、階層がどんどん深くなっていくため）
+ */
+async function phoneNewFolder(parentId) {
+  if (editLocked()) return;
+  const parent = parentId ? M.findById(S.vault, parentId)?.node : null;
+  const list = parent ? parent.children : S.vault.children;
+  const input = h('input', { type: 'text', value: M.uniqueFolderName(list), 'aria-label': 'フォルダ名', spellcheck: 'false', autocomplete: 'off' });
+  const where = parent ? `「${parent.name || '(名前なし)'}」の中` : '一番上（すべて）';
+  const v = await modal({
+    title: '新しいフォルダ',
+    body: [h('p', { class: 'muted small' }, `${where}に作ります。`), h('label', { class: 'field' }, h('span', {}, 'フォルダ名'), input)],
+    buttons: [{ label: 'キャンセル', value: null }, { label: '作る', value: 'ok', kind: 'primary' }],
+    onOpen: (_, close) => {
+      input.select();
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); close('ok'); } });
+    },
+  });
+  if (v !== 'ok') return;
+  const f = M.newFolder(input.value.trim() || M.uniqueFolderName(list));
+  list.push(f);
+  if (parent) parent.open = true;
+  markDirty();
+  renderTree();
+  if (S.sel === parentId) renderDetail(); // フォルダの画面から作ったときは、その画面の件数などを新しくする
+  toast(`「${f.name}」を作りました`);
+}
+
+/**
+ * スマホ：そのフォルダ（null なら最上位＝最初のフォルダ）に新しいアイテムを作り、すぐ入力できる画面で開く。
+ * 右下の［＋］の「アイテムを追加」・フォルダの画面・一覧の長押しメニューから使う
+ */
+function phoneNewItem(folderId) {
+  if (editLocked()) return;
+  S.sel = folderId || null;
+  addItem();
+  S.mobileEdit = true;
+  renderDetail();
+  $detail.querySelector('.title-input')?.select();
+  // どこにできたかを知らせる（最上位で押したときは、最初のフォルダに入るため）
+  const at = selected()?.parent;
+  if (at) toast(`「${at.name || '(名前なし)'}」に新しいアイテムを作りました`);
+}
+
 function duplicateItem(it, parent) {
   if (editLocked()) return;
   const c = structuredClone(it);
@@ -1449,6 +1521,18 @@ function duplicateItem(it, parent) {
   list.splice(list.indexOf(it) + 1, 0, c);
   markDirty();
   select(c.id);
+}
+
+/** 名前を変える：そのフォルダ・アイテムを選んで名前の欄に入る（スマホの長押しメニューから。アイテムは編集の画面にする） */
+function startRename(id) {
+  if (editLocked()) return;
+  select(id);
+  const e = selected();
+  if (!e) return;
+  if (isPhone() && e.node.type === 'item') { S.mobileEdit = true; renderDetail(); }
+  const t = $detail.querySelector(e.node.type === 'item' ? '.title-input' : 'input');
+  t?.focus();
+  t?.select();
 }
 
 /** 上へ・下へで入れ替える相手の位置（ない場合は -1）。
@@ -1731,7 +1815,8 @@ async function offerDraftRestore() {
     body: [h('p', { class: 'pre' }, sameBase
       ? `ロック前（${fmtDateTime(d.savedAt)}）の、保存していない変更があります。復元しますか？`
       : `ロック前（${fmtDateTime(d.savedAt)}）の、保存していない変更があります。
-その後ファイルが更新されているため、そのまま戻すと新しい変更が消えます。比較して統合してください。`)],
+その後ファイルが更新されているため、そのまま戻すと新しい変更が消えます。比較して統合してください。`),
+    h('p', { class: 'muted small' }, '保存しないままロックされたので、入れた内容が消えないよう、暗号化してこの端末に取っておいたものです（詳しくは よくある質問 →「表示・操作」）。')],
     buttons: [{ label: '破棄する', value: 'discard', kind: 'danger' }, { label: 'あとで', value: null }, { label: sameBase ? '復元する' : '比較して統合', value: 'restore', kind: 'primary' }],
   });
   if (!v) return; // 「あとで」：次に開いたときにまた聞く
@@ -2035,9 +2120,9 @@ async function runMenu(k) {
     case 'openSite': return e?.node.type === 'item' ? openOfficialSite(e.node) : undefined;
     case 'typeSelected': return e?.node.type === 'item' ? autoTypeItem(e.node, { useHotkeyTarget: false }) : undefined;
     case 'quit': return host.call('quit').catch((e) => toast(errText(e)));
-    case 'newItem': if (isPhone()) S.sel = S.phoneFolder || null; return addItem();
+    case 'newItem': return isPhone() ? phoneNewItem(S.phoneFolder) : addItem();
     // スマホは「今開いているフォルダの中」に作る
-    case 'newFolder': if (isPhone()) { S.sel = S.phoneFolder || null; return addFolder(!!S.phoneFolder); } return addFolder(false);
+    case 'newFolder': return isPhone() ? phoneNewFolder(S.phoneFolder) : addFolder(false);
     case 'newSub': return addFolder(true);
     case 'duplicate': return e?.node.type === 'item' ? duplicateItem(e.node, e.parent) : undefined;
     case 'delete': return e ? deleteNode(e.node, e.parent) : undefined;
@@ -3393,7 +3478,7 @@ if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
 
 // スマホの画面（ui-phone.js）・PC の画面（ui-pc.js）から使う
 export {
-  pwHint, ibtn, $detail, $layout, $mbar, $tree, S, addFolder, addItem, autoTypeItem, charSpans, copyText, deleteNode, duplicateItem, editLocked, generatorDialog, helpDialog, helpTabs, lock, menuGroups, moveNode, moveTarget, openHelpTab, openOfficialSite, passwordHistoryDialog, printDialog, renderDetail, renderMain, renderTree, runMenu, save, select, selected, settings, sortSelected, toggleReadOnly, touch,
+  pwHint, ibtn, $detail, $layout, $mbar, $tree, S, addFolder, addItem, autoTypeItem, charSpans, copyText, deleteNode, duplicateItem, editLocked, generatorDialog, helpDialog, helpTabs, lock, menuGroups, moveNode, moveTarget, openHelpTab, openOfficialSite, passwordHistoryDialog, printDialog, renderDetail, renderMain, renderTree, runMenu, save, select, selected, settings, sortSelected, startRename, phoneNewItem, toggleReadOnly, touch,
 };
 
 boot();

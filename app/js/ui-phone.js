@@ -170,7 +170,7 @@ function renderPhoneList() {
   const items = here.filter((c) => c.type === 'item');
   const entries = [...folders.map((f) => phoneFolderEntry(f)), ...items.map((it) => (tileMode() ? phoneTile(it) : phoneRow(it)))];
   const empty = chain.length
-    ? h('p', { class: 'muted pad' }, settings.readOnly ? 'このフォルダは空です' : 'このフォルダは空です。右下の［＋］で、このフォルダにアイテムを作れます')
+    ? h('p', { class: 'muted pad' }, settings.readOnly ? 'このフォルダは空です' : 'このフォルダは空です。右下の［＋］で、このフォルダにアイテムやフォルダを作れます')
     : h('p', { class: 'muted pad' }, settings.readOnly ? 'アイテムがありません' : '右下の［＋］から追加できます');
   clear($tree, entries.length ? h('div', { class: tileMode() ? 'm-tiles' : 'm-items' }, entries) : empty);
 }
@@ -436,16 +436,39 @@ function phoneItemView({ node: it, path }) {
     h('p', { class: 'muted small' }, `更新: ${fmtDateTime(it.modified)}`));
 }
 
-/** スマホ（狭い画面）用：☰ で開く一覧 */
+// ---- スマホの ☰ メニュー：上によく使うものを絵付きのボタンで、下に残りを見出しごとにたたんで並べる ----
+const QUICK = [ // [メニューの項目, 表示名, 絵]
+  ['save', '保存', 'save'], ['lock', 'ロック', 'lock'], ['newFolder', '新しいフォルダ', 'add-folder'], ['gen', 'パスワード生成', 'generate'],
+  ['pwCheck', 'パスワード点検', 'shield'], ['urlAudit', 'URL 点検', 'open-site'], ['settings', '設定', 'settings'], ['howto', '使い方', 'help'],
+];
+const GROUP_ICON = { file: 'new-file', tools: 'key', view: 'show', help: 'faq' };
+let lastOpenGroup = null; // 最後に開いた見出し（次にメニューを開いたときも開いておく）
+
 async function menuDialog() {
   let picked = null;
-  const pick = (k) => (e) => { picked = k; e.target.closest('.overlay').querySelector('.modal-head .icon-btn').click(); };
+  const pick = (k) => (e) => { picked = k; e.currentTarget.closest('.overlay').querySelector('.modal-head .icon-btn').click(); };
+  const groups = menuGroups();
+  const all = new Map(groups.flatMap(([, , , items]) => items.filter((x) => x !== '-').map((x) => [x[0], x])));
+  const quickKeys = new Set(QUICK.map(([k]) => k));
+  const quick = h('div', { class: 'm-quick' }, QUICK.filter(([k]) => all.has(k)).map(([k, label, ic]) =>
+    h('button', { class: 'm-quick-btn', disabled: !!all.get(k)[2]?.disabled, onclick: pick(k) }, icon(ic), h('span', {}, label))));
+  // 下の段：上の段にあるものは除く。「編集」は出さない（追加は右下の［＋］、選んだものへの操作は一覧の長押しメニュー）。
+  // 「閲覧のみにする」は「表示」へ
+  const sections = groups.filter(([id]) => id !== 'edit').map(([id, title, , items]) => {
+    let rows = items.filter((x) => x !== '-' && !quickKeys.has(x[0]) && !x[2]?.disabled);
+    if (id === 'view' && all.has('readOnly')) rows = [all.get('readOnly'), ...rows];
+    if (!rows.length) return null;
+    const sec = h('details', { class: 'm-menu-sec', open: lastOpenGroup === id },
+      h('summary', {}, icon(GROUP_ICON[id] || 'more'), h('span', { class: 'm-menu-title' }, title), h('span', { class: 'm-menu-count' }, String(rows.length))),
+      rows.map(([k, label, o]) => h('button', { class: 'menu-item', onclick: pick(k) }, o?.checked ? `✓ ${label}` : label)));
+    sec.addEventListener('toggle', () => { if (sec.open) lastOpenGroup = id; else if (lastOpenGroup === id) lastOpenGroup = null; });
+    return sec;
+  });
   await modal({
     title: 'メニュー',
     wide: true,
-    body: [h('div', { class: 'menu-groups' }, menuGroups().map(([, title, , items]) => h('section', { class: 'menu' },
-      h('h3', {}, title),
-      items.filter((x) => x !== '-' && !x[2]?.disabled).map(([k, label, o]) => h('button', { class: 'menu-item', onclick: pick(k) }, o?.checked ? `✓ ${label}` : label)))))],
+    cls: 'm-menu',
+    body: [h('p', { class: 'm-menu-label' }, 'よく使う'), quick, h('div', { class: 'm-menu-secs' }, sections)],
     buttons: [],
   });
   if (picked) await runMenu(picked);

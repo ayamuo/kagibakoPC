@@ -603,6 +603,18 @@ await test('使い回しをまとめ、暗証番号らしいものは分ける',
   assert.equal(HL.reuseCount([e('A', 'x1'), e('B', 'x1'), e('C', 'y')], { id: 'A', password: 'x1' }), 1);
 });
 
+console.log('新しいフォルダの名前');
+await test('同じ階層に同じ名前があれば番号を付ける（別の階層・アイテムの名前は数えない）', () => {
+  const list = [];
+  assert.equal(Mo.uniqueFolderName(list), '新しいフォルダ');
+  list.push(Mo.newFolder('新しいフォルダ'));
+  assert.equal(Mo.uniqueFolderName(list), '新しいフォルダ (2)');
+  list.push(Mo.newFolder('新しいフォルダ (2)'));
+  assert.equal(Mo.uniqueFolderName(list), '新しいフォルダ (3)');
+  const onlyItem = [Mo.newItem(null, '新しいフォルダ')];
+  assert.equal(Mo.uniqueFolderName(onlyItem), '新しいフォルダ', 'アイテムの名前とは重なってもよい');
+});
+
 console.log('端末内の控え（自動入力で最初に選ぶデータ）');
 await test('最後に開いたファイルが先頭に来る（中身が同じで記録し直さないときも）', async () => {
   const St = await appJs('store.js');
