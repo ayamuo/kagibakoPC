@@ -9,9 +9,10 @@ import * as BC from './brandcheck.js';
 import * as store from './store.js';
 import {
   renderMain, renderTree, select, renderDetail, openOfficialSite, passwordHistoryDialog, copyText, menuGroups, runMenu, charSpans, S, settings, $tree,
-  ibtn, pwHint, touch, editLocked,
+  ibtn, pwHint, touch, editLocked, bioSetupBox,
 } from './app.js';
 import { closeDropdown } from './ui-pc.js';
+import { startPractice } from './practice.js';
 
 // ---- スマホ向けの画面（Android版、または幅の狭い画面） ----
 const phoneMQ = typeof matchMedia === 'function' ? matchMedia('(max-width: 560px)') : null;
@@ -425,7 +426,8 @@ function phoneItemView({ node: it, path }) {
   return h('div', { class: 'pane m-item' },
     h('div', { class: 'muted small' }, path.join(' / ')),
     h('div', { class: 'm-head' }, avatarOf(it), h('h2', { class: 'm-title' }, it.name || '(名前なし)')),
-    host0 && !v.hideUrl ? h('button', { class: 'btn big m-open ib', onclick: () => openOfficialSite(it) }, icon('open-site'), '公式サイトを開く', h('span', { class: 'm-domain' }, D.registrableDomain(host0))) : null,
+    // URL があれば、設定で URL の欄を隠していても出す（PC と同じ。隠すのは欄だけ）
+    host0 ? h('button', { class: 'btn big m-open ib', onclick: () => openOfficialSite(it) }, icon('open-site'), '公式サイトを開く', h('span', { class: 'm-domain' }, D.registrableDomain(host0))) : null,
     chk.lookalike ? h('div', { class: 'warn small danger-box' }, icon('warning'), ' 偽ドメインの疑い：', BC.lookalikeText(chk.lookalike))
       : chk.level === 'ok' ? h('div', { class: 'small m-okline' }, icon('ok'), official ? ` ${official.name}の公式ドメイン` : ' 自分で確認した公式ドメイン') : null,
     fields.length ? fields : h('p', { class: 'muted' }, 'まだ何も入っていません。'),
@@ -434,6 +436,92 @@ function phoneItemView({ node: it, path }) {
     settings.readOnly ? h('p', { class: 'muted small' }, '👁 閲覧のみモードです（メニューから編集できるようにできます）')
       : h('button', { class: 'btn m-edit ib', onclick: () => { S.mobileEdit = true; renderDetail(); } }, icon('edit'), '編集する'),
     h('p', { class: 'muted small' }, `更新: ${fmtDateTime(it.modified)}`));
+}
+
+// ---- Android：［公式サイトを開く］のブラウザの選択（設定・最初の説明・練習で同じ選択肢と説明を使う） ----
+const BROWSER_CHOICES = [ // [値, 名前, 注意書き]
+  ['chrome', 'Chrome で開く（おすすめ）', 'Kagibako の自動入力の動作を確かめているブラウザです。Chrome が入っていないときは、端末の既定のブラウザで開きます。'],
+  ['default', '端末の既定のブラウザで開く', 'Chrome 以外のブラウザ（端末に最初から入っているブラウザなど）では、自動入力が正しく動かないことがあります。'],
+];
+const CHROME_SETUP = 'Chrome では、Chrome の 設定 →「自動入力サービス」→「他のサービスを使用して自動入力」を選び、Chrome を再起動してください。';
+
+/** 押したらすぐ保存する選択肢（最初の説明・練習用。設定の画面は［OK］で保存するので別に作る） */
+function browserChoiceBox() {
+  const box = h('div', { class: 'browser-choice', role: 'radiogroup', 'aria-label': '公式サイトを開くブラウザ' });
+  const draw = () => {
+    const cur = settings.androidBrowser || 'chrome';
+    clear(box, BROWSER_CHOICES.map(([v, label, note]) => h('button', {
+      type: 'button', class: `browser-opt${cur === v ? ' on' : ''}`, role: 'radio', 'aria-checked': String(cur === v),
+      onclick: async () => { settings.androidBrowser = v; await store.setSetting('settings', { ...settings }); draw(); },
+    }, h('span', { class: 'browser-mark', 'aria-hidden': 'true' }, cur === v ? '●' : '○'), h('span', { class: 'browser-text' }, h('strong', {}, label), h('span', { class: 'muted small' }, note)))),
+    h('p', { class: 'muted small' }, CHROME_SETUP));
+  };
+  draw();
+  return box;
+}
+
+// ---- はじめての方向けの使い方の案内（チュートリアル）：絵と短い文の6枚。いつでもスキップできる ----
+// 文の中の \n は改行（作者が決めた位置。画面の幅が足りないときは、そのうえで折り返す）
+const HELP_AGAIN = 'この説明とログインの練習は、\n☰ →「ヘルプ」からいつでも見られます。';
+const TUTORIAL = [
+  { ic: 'lock', title: 'データはあなたの手元に', text: 'ID・パスワードは暗号化して、\nあなたが選んだファイルに保存します。\nGoogle ドライブなどに置けば、\nPC 版とも同じファイルを使えます。' },
+  { ic: 'add-item', title: '追加と整理', text: '右下の［＋］でアイテムやフォルダを追加します。\n長押しでメニュー、そのまま指を動かすと\nドラッグで移動できます。' },
+  { ic: 'autotype', title: 'ログインで使う', text: 'アイテムを開いて［コピー］。\nまたは「自動入力サービス」にすると、\nログイン欄に「Kagibako で入力」が出ます。', note: 'ブラウザは Chrome をおすすめします。\nほかのブラウザでは、正しく動かないことがあります。', autofill: true },
+  { ic: 'open-site', title: '公式サイトを開くブラウザ', text: 'Kagibako の［公式サイトを開く］で\n使うブラウザを選んでください。\n（あとで 設定 →「自動入力」でも変えられます）', browser: true },
+  { ic: 'fingerprint', title: 'すぐ開いて、すぐ閉じる', text: '指紋・顔で開けるように、ここで設定できます。\n（あとで 設定 →「安全」でも変えられます）\n使い終わったら右上の［ロック］を押してください。', bio: true },
+  { ic: 'warning', title: '大事なこと', text: 'マスターパスワードを忘れると、誰にも開けません。\nファイルのバックアップも、ときどき取っておいてください。', note: HELP_AGAIN, practice: true },
+];
+
+async function tutorialDialog() {
+  let i = 0;
+  let closeFn = null;
+  let practice = false; // 最後のページの［ログインの練習をしてみる］を押した
+  const page = h('div', { class: 'tut-page' });
+  const dots = h('div', { class: 'tut-dots', 'aria-hidden': 'true' }, TUTORIAL.map(() => h('span', {})));
+  const skipBtn = h('button', { class: 'btn', type: 'button' }, 'スキップ');
+  const backBtn = h('button', { class: 'btn', type: 'button' }, '戻る');
+  const nextBtn = h('button', { class: 'btn primary', type: 'button' }, '次へ');
+  const draw = () => {
+    const p = TUTORIAL[i];
+    clear(page,
+      h('div', { class: 'tut-ic' }, icon(p.ic)),
+      h('h3', {}, p.title),
+      h('p', {}, p.text),
+      p.note ? h('p', { class: 'muted small' }, p.note) : null,
+      p.autofill && host.isAndroid ? h('button', { class: 'btn', type: 'button', onclick: () => host.call('enableAutofill').catch((e) => toast(e.message)) }, '自動入力サービスに設定する') : null,
+      p.browser ? (host.isAndroid ? browserChoiceBox() : h('p', { class: 'muted small' }, '（この選択は Android 版で使います）')) : null,
+      p.bio ? (host.isAndroid ? bioSetupBox({ allowRemove: false }) : h('p', { class: 'muted small' }, '（指紋・顔での解除は Android 版で使えます）')) : null,
+      p.practice && !settings.readOnly ? h('div', { class: 'tut-practice' },
+        h('p', { class: 'small' }, '練習用のアイテムを作って、ログインまで試してみませんか？（2〜3分）'),
+        h('button', { class: 'btn', type: 'button', onclick: () => { practice = true; closeFn?.(null); } }, 'ログインの練習をしてみる')) : null);
+    [...dots.children].forEach((d, n) => d.classList.toggle('on', n === i));
+    backBtn.hidden = i === 0;
+    skipBtn.hidden = i === TUTORIAL.length - 1;
+    nextBtn.textContent = i === TUTORIAL.length - 1 ? 'はじめる' : '次へ';
+  };
+  draw();
+  await modal({
+    title: 'はじめての方へ',
+    cls: 'tut-modal',
+    dismissable: false, // 外側を押したり Esc で消えたりしないように。閉じるのは［スキップ］か［はじめる］だけ
+    body: [page, dots, h('div', { class: 'tut-nav' }, skipBtn, h('span', { class: 'tut-gap' }), backBtn, nextBtn)],
+    buttons: [],
+    onOpen: (_, close) => {
+      closeFn = close;
+      skipBtn.onclick = () => { close(null); toast(HELP_AGAIN, 5000); };
+      backBtn.onclick = () => { if (i > 0) { i--; draw(); } };
+      nextBtn.onclick = () => { if (i < TUTORIAL.length - 1) { i++; draw(); } else close(null); };
+      nextBtn.focus();
+    },
+  });
+  if (practice) startPractice();
+}
+
+/** スマホ：はじめてファイルを作った・開いたときに、1回だけチュートリアルを出す（☰ →「ヘルプ」からいつでも見られる） */
+async function maybeShowTutorial() {
+  if (!isPhone() || (await store.getSetting('tutorialSeen', false))) return;
+  await store.setSetting('tutorialSeen', true);
+  await tutorialDialog();
 }
 
 // ---- スマホの ☰ メニュー：上によく使うものを絵付きのボタンで、下に残りを見出しごとにたたんで並べる ----
@@ -474,4 +562,4 @@ async function menuDialog() {
   if (picked) await runMenu(picked);
 }
 
-export { phoneRow, renderPhoneList, phoneItemView, menuDialog, isPhone, phoneViewToggle, avatarOf, phoneUp, openPhoneFolder, setupPhoneDrag };
+export { phoneRow, renderPhoneList, phoneItemView, menuDialog, isPhone, phoneViewToggle, avatarOf, phoneUp, openPhoneFolder, setupPhoneDrag, tutorialDialog, maybeShowTutorial, BROWSER_CHOICES, CHROME_SETUP, browserChoiceBox };

@@ -290,7 +290,7 @@ input.expired { border-color: var(--danger); color: var(--danger); }
 .badge.newer { background: var(--ok); color: var(--panel); }
 
 /* ---- toast ---- */
-#toast { position: fixed; left: 50%; bottom: max(1.25rem, env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(150%); background: #222a35; color: #fff; padding: .6rem 1rem; border-radius: 8px; max-width: calc(100% - 2rem); transition: transform .2s; z-index: 100; font-size: .9rem; pointer-events: none; }
+#toast { position: fixed; left: 50%; bottom: max(1.25rem, env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(150%); background: #222a35; color: #fff; padding: .6rem 1rem; border-radius: 8px; width: max-content; max-width: calc(100% - 2rem); box-sizing: border-box; /* 画面の半分で折り返さないように */ transition: transform .2s; z-index: 100; font-size: .9rem; pointer-events: none; white-space: pre-line; } /* 知らせの中の \n で改行する */
 #toast.show { transform: translateX(-50%) translateY(0); }
 #toast:not(.show) { visibility: hidden; transition: transform .2s, visibility 0s .2s; } /* 隠れているとき、画面の下に端が見えないように */
 
@@ -529,6 +529,10 @@ select { cursor: pointer; }
 }
 .fname-input:hover:not([readonly]) { border-color: var(--field-line); border-style: dashed; }
 .fname-input:focus { background: var(--field-bg); color: var(--text); font-weight: normal; }
+/* スマホ：項目名はただの見出し＋横の［鉛筆］（押すと項目名を変える窓） */
+.fname-phone { display: flex; align-items: center; gap: .3rem; }
+.fname-phone .fname-edit { padding: .15rem .3rem; min-height: 0; }
+.fname-phone .fname-edit .ic { width: 1rem; height: 1rem; }
 
 /* メニューバーのボタンは文字だけ（ツールバーのボタンと区別） */
 .mb-btn { box-shadow: none; }
@@ -873,6 +877,41 @@ body:not(.phone) .topbar .title { min-width: 6rem; }
    長押しのメニュー・ドラッグとぶつかり、誤操作のもとになるため。値は［コピー］で写す。入力欄は今まで通り選べる */
 html.android body, body.phone { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 html.android input, html.android textarea, body.phone input, body.phone textarea { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+
+/* ---- はじめての方への案内（チュートリアル） ---- */
+.tut-page { text-align: center; min-height: 15rem; display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: .5rem .25rem; }
+.tut-page h3 { margin: .25rem 0 0; font-size: 1.15rem; }
+.tut-page p { margin: 0; line-height: 1.7; white-space: pre-line; } /* 文の中の \n で改行する */
+.tut-ic { width: 4.5rem; height: 4.5rem; border-radius: 50%; background: var(--accent-soft); display: flex; align-items: center; justify-content: center; margin-top: .5rem; }
+.tut-ic .ic { width: 2.6rem; height: 2.6rem; }
+.tut-dots { display: flex; justify-content: center; gap: .45rem; margin: .75rem 0; }
+.tut-dots span { width: .55rem; height: .55rem; border-radius: 50%; background: var(--line); }
+.tut-dots span.on { background: var(--accent); }
+.tut-nav { display: flex; align-items: center; gap: .5rem; }
+.tut-gap { flex: 1; }
+.tut-page .bio-setup { display: grid; gap: .4rem; justify-items: center; margin-top: .2rem; }
+.tut-practice { margin-top: .6rem; padding-top: .7rem; border-top: 1px solid var(--line); display: grid; gap: .4rem; justify-items: center; }
+
+/* ---- Android：公式サイトを開くブラウザの選択（最初の説明・練習） ---- */
+.browser-choice { display: grid; gap: .5rem; width: 100%; text-align: left; margin-top: .3rem; }
+.browser-opt { font: inherit; color: inherit; display: flex; gap: .6rem; align-items: flex-start; text-align: left; width: 100%; padding: .65rem .75rem; background: none; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.browser-opt.on { border: 2px solid var(--accent); background: var(--accent-soft); }
+.browser-mark { color: var(--accent); flex: none; line-height: 1.5; }
+.browser-text { display: grid; gap: .15rem; }
+.browser-choice > p { margin: 0; }
+
+/* ---- ログインの練習（practice.js）：光らせて案内する吹き出し ---- */
+.coach { position: fixed; left: 12px; right: 12px; max-width: 30rem; margin: 0 auto; z-index: 80; background: var(--panel); color: var(--text); border: 2px solid var(--accent); border-radius: 12px; padding: .75rem .9rem; box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
+.coach.coach-card { top: 50% !important; transform: translateY(-50%); }
+.coach p { margin: 0 0 .45rem; line-height: 1.65; }
+.coach-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+.coach-quit { display: block; margin-top: .4rem; }
+.coach-ic { display: flex; justify-content: center; margin-bottom: .3rem; }
+.coach-ic .ic { width: 2.2rem; height: 2.2rem; }
+.coach-list { margin: 0 0 .3rem; padding-left: 1.2rem; line-height: 1.6; }
+.coach-target { outline: 3px solid var(--accent); outline-offset: 3px; animation: coach-blink 1.6s ease-in-out infinite; }
+@keyframes coach-blink { 50% { outline-color: transparent; } }
+@media (prefers-reduced-motion: reduce) { .coach-target { animation: none; } }
 
 /* ---- スマホの ☰ メニュー：上によく使うもの（絵付きのボタン）、下に見出しごとにたたんだ残り ---- */
 .m-menu-label { margin: 0 0 .35rem; font-size: .8rem; color: var(--muted); }

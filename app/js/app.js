@@ -18,7 +18,8 @@ import { BRANDS } from './brands.js';
 import { GUIDE, DISCLAIMER, DISCLAIMER_VERSION } from './guide.js';
 import { HOWTO, FAQ, SHORTCUTS, forHost } from './help.js';
 import { icon } from './icons.js';
-import { phoneRow, renderPhoneList, phoneItemView, menuDialog, isPhone, phoneViewToggle, phoneUp, setupPhoneDrag } from './ui-phone.js';
+import { phoneRow, renderPhoneList, phoneItemView, menuDialog, isPhone, phoneViewToggle, phoneUp, setupPhoneDrag, tutorialDialog, maybeShowTutorial, BROWSER_CHOICES } from './ui-phone.js';
+import { startPractice } from './practice.js';
 import { closeDropdown, setupTreeDnD, menuBar, treeContextMenu, applyLayoutSettings, splitter, shortcutsDialog, treeArrowKeys, treeDraggable } from './ui-pc.js';
 
 const APP_VERSION = '0.9.2';
@@ -69,6 +70,7 @@ const settings = {
   autoTypeTemplate: AT.DEFAULT_TEMPLATE, autoStartDelay: 400, keyDelay: 5, minimizeAfterType: false, autoTypeVia: 'type',
   customTemplates: [], // [{ name, template }]
   hotkey: 'ctrl+alt+a', closeToTray: true, minimizeToTray: true, topMost: false, browserPath: '', autoSaveOnClose: false,
+  androidBrowser: 'chrome', // Android：［公式サイトを開く］のブラウザ。'chrome'（入っていれば Chrome）か 'default'（端末の既定）
   backupEnabled: true, backupDir: '', backupKeep: 30,
   // 画面の幅：ツリーの幅（px）と、右側の入力欄の最大幅（'normal' | 'wide' | 'full'）
   colorChars: true, sideWidth: 0, paneWidth: 'normal',
@@ -390,6 +392,7 @@ async function beginUnlock(file, { afterLock = false, presetPassword = null } = 
     try {
       await unlock(file, password, { afterLock });
       if (host.isAndroid && typed) await offerBioEnroll(bioKey, password);
+      await maybeShowTutorial(); // スマホ：はじめての方に1回だけ使い方の案内（2回目からは出ない）
     } catch (ex) {
       if (usedBio && ex.name === 'WrongPasswordError') {
         // 保存していたパスワードが古い（PC でマスターパスワードを変えた など）
@@ -667,7 +670,8 @@ async function createFlow() {
       h('label', { class: 'field' }, h('span', {}, 'ファイル名'), h('div', { class: 'row' }, name, h('span', {}, '.kagi'))),
       h('label', { class: 'field' }, h('span', {}, 'マスターパスワード'), pw), capsWarning(pw), meter,
       h('label', { class: 'field' }, h('span', {}, 'マスターパスワード（確認）'), pw2),
-      h('p', { class: 'muted small' }, '忘れると誰にも復元できません。長いフレーズ（例: 4単語以上）がおすすめです。'), err],
+      h('p', { class: 'muted small' }, '忘れると誰にも復元できません。長いフレーズ（例: 4単語以上）がおすすめです。'),
+      h('p', { class: 'muted small' }, '［作成］のあと、ファイルの保存先を選びます。'), err],
     buttons: [{ label: 'キャンセル', value: false }, { label: '作成', value: true, kind: 'primary', validate: () => {
       err.textContent = '';
       if (!name.value.trim()) { err.textContent = 'ファイル名を入力してください'; return false; }
@@ -684,7 +688,14 @@ async function createFlow() {
   vault.children.push(f);
   Object.assign(S, { file: { name: `${name.value.trim()}.kagi`, bytes: null, handle: null, kind: 'kagi' }, kind: 'kagi', vault, header: null, session, legacyKey: null, knownKey: null, dirty: true, sel: f.id, banner: null, reveal: new Set(), mobileDetail: false });
   renderMain();
-  toast('作成しました。「保存」でファイルに書き出してください');
+  // 作った時点でファイルにする（保存先を選んでもらう）。ファイルになれば、次に起動したとき「前回のファイル」として開ける
+  const password = pw.value;
+  pw.value = ''; pw2.value = '';
+  await save();
+  if (!S.file?.bytes) { toast('まだファイルになっていません。［保存］で書き出してください', 6000); await maybeShowTutorial(); return; }
+  // Android：その場で「指紋・顔で開けるようにしますか？」を聞く（作るときに入れたパスワードを使う。次に開くときまで待たせない）
+  if (host.isAndroid && S.knownKey) await offerBioEnroll(S.knownKey, password);
+  await maybeShowTutorial(); // スマホ：はじめての方に1回だけ使い方の案内
 }
 
 // ---------------- メイン画面 ----------------
@@ -1073,7 +1084,9 @@ function itemView({ node: it, parent, path }) {
     } }), '伏字');
     // 一時的に見るボタンは、チェックで切り替えられない欄（パスワード・設定で全体を伏せている欄）だけ
     const revealBtn = secret && !maskToggle ? ibtn(shown ? 'hide' : 'show', shown ? '伏せ字に戻す' : '一時的に表示する', () => { S.reveal.has(valueKey) ? S.reveal.delete(valueKey) : S.reveal.add(valueKey); renderDetail(); }, { cls: 'small' }) : null;
-    const val = h('input', { type: shown ? 'text' : 'password', value: it[valueKey] ?? '', oninput: set(valueKey), readonly: ro, spellcheck: 'false', autocomplete: 'off', 'aria-label': it[nameKey] || placeholder });
+    // 空のときは、何を入れる欄かを薄く出す（項目名の欄と見分けやすくする）
+    const val = h('input', { type: shown ? 'text' : 'password', value: it[valueKey] ?? '', oninput: set(valueKey), readonly: ro, spellcheck: 'false', autocomplete: 'off', 'aria-label': it[nameKey] || placeholder,
+      placeholder: ro ? null : `ここに${it[nameKey] || placeholder}を入力` });
     // パスワードを表示しているときは、読み間違えないよう文字の種類ごとに色分けした行を添える
     const colored = valueKey === 'password' && secret && shown && settings.colorChars !== false && it.password
       ? h('div', { class: 'pw-colored mono', title: '文字の種類ごとの色分け（設定で変更できます）' }, charSpans(it.password)) : null;
@@ -1086,8 +1099,14 @@ function itemView({ node: it, parent, path }) {
         if (before && before !== it.password) { M.pushPasswordHistory(it, before); before = it.password; refreshHistoryBtn(); }
       });
     }
+    // 項目名（Account ID など）。PC は見出しのように見せた入力欄（マウスを乗せると点線）。
+    // スマホは押すと入力欄になって値の欄と見分けにくいので、ただの見出しにし、書き換えは横の［鉛筆］から
+    const nameEl = isPhone()
+      ? h('div', { class: 'flabel fname-phone' }, h('span', {}, it[nameKey] || placeholder),
+        ro ? null : ibtn('edit', '項目名を変える', () => renameFieldDialog(it, nameKey, placeholder), { cls: 'small fname-edit' }))
+      : h('input', { type: 'text', class: 'fname-input', value: it[nameKey] ?? '', placeholder, oninput: set(nameKey), readonly: ro, 'aria-label': `${placeholder}の名前` });
     return [h('div', { class: 'frow' },
-      h('input', { type: 'text', class: 'fname-input', value: it[nameKey] ?? '', placeholder, oninput: set(nameKey), readonly: ro, 'aria-label': `${placeholder}の名前` }),
+      nameEl,
       val,
       h('div', { class: 'fbtns' },
         revealBtn,
@@ -1365,7 +1384,8 @@ async function openOfficialSite(it) {
   if (host.isDesktop || host.isAndroid) {
     // PC版：設定でブラウザを指定していればそのブラウザで、なければ既定のブラウザで開く
     // Android版：アプリ側からブラウザを開く（確認ダイアログを挟むと window.open は止められるため）
-    try { await host.call('openUrl', { url, browser: settings.browserPath || '' }); } catch (e) { toast(errText(e), 6000); }
+    // PC：browser（設定で指定したブラウザ）／Android：chrome（設定で Chrome を選んでいれば、入っていれば Chrome で開く）
+    try { await host.call('openUrl', { url, browser: settings.browserPath || '', chrome: settings.androidBrowser !== 'default' }); } catch (e) { toast(errText(e), 6000); }
     return;
   }
   window.open(url, '_blank', 'noopener,noreferrer');
@@ -1523,6 +1543,56 @@ function duplicateItem(it, parent) {
   select(c.id);
 }
 
+/**
+ * Android：いま開いているファイルの「指紋・顔でのロック解除」の状態と、設定する・取り消すボタン。
+ * 設定の画面と、最初の説明（はじめての方へ）で使う
+ */
+function bioSetupBox({ allowRemove = true } = {}) {
+  const box = h('div', { class: 'bio-setup' });
+  const draw = async () => {
+    const st = await host.call('bioStatus', { key: S.knownKey }).catch(() => null);
+    if (!st || st.status === 'unsupported') return clear(box, h('p', { class: 'muted small' }, 'この端末では使えません（Android 11 以降が必要です）。'));
+    if (st.status !== 'ok') return clear(box, h('p', { class: 'muted small' }, '端末の設定で指紋や顔を登録すると使えます。'));
+    if (st.enrolled) {
+      return clear(box, h('p', { class: 'small' }, icon('ok'), ' このファイルは指紋・顔で開けます。'),
+        allowRemove ? h('button', { class: 'btn small', onclick: async () => { await host.call('bioRemove', { key: S.knownKey }).catch(() => {}); toast('指紋・顔でのロック解除を取り消しました'); draw(); } }, '取り消す') : null);
+    }
+    return clear(box, h('p', { class: 'muted small' }, 'このファイルを、マスターパスワードの代わりに指紋や顔で開けるようにします。'),
+      h('button', { class: 'btn small', onclick: async () => {
+        const p = await passwordPrompt('指紋・顔でのロック解除', '確認のため、今のマスターパスワードを入れてください。', { check: verifyMasterPassword });
+        if (!p) return;
+        try {
+          await host.call('bioEnroll', { key: S.knownKey, password: p }, 0);
+          const declined = await store.getSetting('bioDeclined', {}); delete declined[S.knownKey]; await store.setSetting('bioDeclined', declined);
+          toast('次から指紋・顔で開けます');
+        } catch (e) { if (errText(e) !== 'cancelled') toast(`設定できませんでした（${errText(e)}）`, 5000); }
+        draw();
+      } }, '指紋・顔で開けるようにする'));
+  };
+  if (host.isAndroid && S.knownKey) draw();
+  else clear(box, h('p', { class: 'muted small' }, 'ファイルを保存すると設定できます（Android 版）。'));
+  return box;
+}
+
+/** スマホ：アイテムの欄の項目名（Account ID など）を変える窓 */
+async function renameFieldDialog(it, nameKey, fallback) {
+  if (editLocked()) return;
+  const input = h('input', { type: 'text', value: it[nameKey] || fallback, 'aria-label': '項目名', spellcheck: 'false', autocomplete: 'off' });
+  const v = await modal({
+    title: '項目名を変える',
+    body: [h('p', { class: 'muted small' }, '欄の見出しの名前です（例：メールアドレス、会員番号）。中身は変わりません。'), h('label', { class: 'field' }, h('span', {}, '項目名'), input)],
+    buttons: [{ label: 'キャンセル', value: null }, { label: '変える', value: 'ok', kind: 'primary' }],
+    onOpen: (_, close) => {
+      input.select();
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); close('ok'); } });
+    },
+  });
+  if (v !== 'ok') return;
+  it[nameKey] = input.value.trim();
+  touch(it);
+  renderDetail();
+}
+
 /** 名前を変える：そのフォルダ・アイテムを選んで名前の欄に入る（スマホの長押しメニューから。アイテムは編集の画面にする） */
 function startRename(id) {
   if (editLocked()) return;
@@ -1559,6 +1629,11 @@ async function deleteNode(node, parent) {
   const n = node.type === 'folder' ? M.countItems({ children: node.children }).items : 0;
   const msg = node.type === 'folder' ? `フォルダ「${node.name}」と中のアイテム ${n} 件を削除します。` : `「${node.name}」を削除します。`;
   if (!(await confirmDialog('削除の確認', `${msg}\n（保存するまではファイルに反映されません）`, '削除', true))) return;
+  removeNode(node, parent);
+}
+
+/** 確認なしで消す（削除の記録も残す）。確認は呼ぶ側で済ませる */
+function removeNode(node, parent) {
   const list = M.containerOf(S.vault, parent);
   list.splice(list.indexOf(node), 1);
   const now = Date.now();
@@ -2071,6 +2146,7 @@ function menuGroups() {
     ]],
     ['help', 'ヘルプ', 'H', [
       ['howto', '使い方', { key: 'F1' }],
+      ...(isPhone() ? [['tutorial', 'はじめての方へ（かんたんな案内）'], ['practice', 'ログインの練習（自動入力を試す）', { disabled: !!settings.readOnly }]] : []),
       ['faq', 'よくある質問'],
       ['shortcuts', 'キー操作の一覧', { pc: true }],
       '-',
@@ -2154,6 +2230,8 @@ async function runMenu(k) {
     case 'shortcuts': return isPhone() ? undefined : shortcutsDialog();
     case 'guide': return guideDialog();
     case 'disclaimer': return disclaimerDialog(false);
+    case 'tutorial': return tutorialDialog();
+    case 'practice': return startPractice();
     case 'about': return aboutDialog();
     case 'shareApp':
       return host.call('share', {
@@ -2498,7 +2576,9 @@ async function settingsDialog() {
   const autofillBox = host.isAndroid ? await autofillCard() : null;
   const theme = h('select', {}, [['auto', '自動（端末の設定に合わせる）'], ['light', 'ライト（明るい）'], ['dark', 'ダーク（暗い）']].map(([v, l]) => h('option', { value: v, selected: v === (settings.theme || 'auto') }, l)));
   const vw = { ...settings.view };
-  const viewChk = (k, label) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!vw[k], onchange: (e) => { vw[k] = e.target.checked; } }), label);
+  const viewChk = (k, label, onChange = null) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!vw[k], onchange: (e) => { vw[k] = e.target.checked; onChange?.(e.target.checked); } }), label);
+  // URL を隠すときだけ出す注意（URL は偽サイト対策に使うため）
+  const hideUrlNote = h('p', { class: 'warn small', hidden: !vw.hideUrl }, '⚠ URL を出さないと、アイテムに公式サイトの URL を登録・確認できなくなります。URL は偽サイト対策（自動入力の前の照合・URL の点検）に使うので、出しておくのがおすすめです。');
   const validDays = choice(settings.validDays, [[0, '期限なし'], [30, '1か月後'], [90, '3か月後'], [180, '半年後'], [365, '1年後'], [730, '2年後'], [1095, '3年後'], [1825, '5年後']]);
   const expiryNotify = h('select', {},
     [['off', '知らせない'], ['banner', '画面の上に表示する'], ['dialog', 'ファイルを開いたときに一覧で知らせる']].map(([v, l]) => h('option', { value: v, selected: v === settings.expiryNotify }, l)));
@@ -2540,30 +2620,14 @@ async function settingsDialog() {
 
   const section = (title, ...children) => h('section', { class: 'settings-sec' }, h('h3', {}, title), children);
   // ---- Android：指紋・顔でのロック解除（いま開いているファイル） ----
-  const bioBox = h('div');
-  const drawBio = async () => {
-    const st = await host.call('bioStatus', { key: S.knownKey }).catch(() => null);
-    if (!st || st.status === 'unsupported') return clear(bioBox, h('p', { class: 'muted small' }, 'この端末では使えません（Android 11 以降が必要です）。'));
-    if (st.status !== 'ok') return clear(bioBox, h('p', { class: 'muted small' }, '端末の設定で指紋や顔を登録すると使えます。'));
-    if (st.enrolled) {
-      return clear(bioBox, h('p', { class: 'small' }, icon('ok'), ' このファイルは指紋・顔で開けます。'),
-        h('button', { class: 'btn small', onclick: async () => { await host.call('bioRemove', { key: S.knownKey }).catch(() => {}); toast('指紋・顔でのロック解除を取り消しました'); drawBio(); } }, '取り消す'));
-    }
-    return clear(bioBox, h('p', { class: 'muted small' }, 'このファイルを、マスターパスワードの代わりに指紋や顔で開けるようにします。'),
-      h('button', { class: 'btn small', onclick: async () => {
-        const p = await passwordPrompt('指紋・顔でのロック解除', '確認のため、今のマスターパスワードを入れてください。', { check: verifyMasterPassword });
-        if (!p) return;
-        try {
-          await host.call('bioEnroll', { key: S.knownKey, password: p }, 0);
-          const declined = await store.getSetting('bioDeclined', {}); delete declined[S.knownKey]; await store.setSetting('bioDeclined', declined);
-          toast('次から指紋・顔で開けます');
-        } catch (e) { if (errText(e) !== 'cancelled') toast(`設定できませんでした（${errText(e)}）`, 5000); }
-        drawBio();
-      } }, '設定する'));
-  };
-  if (host.isAndroid && S.screen === 'main' && S.knownKey) drawBio();
+  const bioBox = host.isAndroid && S.screen === 'main' && S.knownKey ? bioSetupBox() : h('div');
   const field = (label, input, note = null) => h('label', { class: 'field' }, h('span', {}, label), input, note ? h('span', { class: 'muted small field-note' }, note) : null);
   const checkRow = (input, label, note = null) => h('label', { class: 'check' }, input, h('span', {}, label, note ? h('span', { class: 'muted small field-note' }, note) : null));
+  // Android：［公式サイトを開く］のブラウザ（選択肢と説明は ui-phone.js の BROWSER_CHOICES。最初の説明・練習と同じ）
+  const andBrowser = BROWSER_CHOICES.map(([v, label, note]) => {
+    const r = h('input', { type: 'radio', name: 'and-browser', value: v, checked: (settings.androidBrowser || 'chrome') === v });
+    return { r, row: checkRow(r, label, note) };
+  });
 
   // 設定を目的ごとのタブに分ける（1画面に全部並べると、どこに何があるか分かりにくいため）
   const tabs = [
@@ -2585,11 +2649,14 @@ async function settingsDialog() {
         isPhone() ? checkRow(phoneShowId, '一覧で、名前の下に ID も表示する', '人に画面を見られる場所では外しておくのがおすすめです') : null,
         h('div', { class: 'field' }, h('span', {}, '最初から ●●● で隠しておく欄'),
           h('div', { class: 'row wrap' }, viewChk('maskAccount', 'ID'), viewChk('maskPassword', 'パスワード'), viewChk('maskItem1', '項目1'), viewChk('maskItem2', '項目2'))),
-        h('div', { class: 'field' }, h('span', {}, '使わないので画面に出さない欄'),
-          h('div', { class: 'row wrap' }, viewChk('hideSerial', 'シリアル番号'), viewChk('hideUrl', 'URL'), viewChk('hideEmail', 'メール'), viewChk('hideFile', 'ファイル'), viewChk('hideDates', '日付')))),
+        h('div', { class: 'field' }, h('span', {}, 'アイテムの画面（見る画面・編集の画面）に出さない欄'),
+          h('span', { class: 'muted small field-note' }, '使わない欄を隠して、画面をすっきりさせます。入っている中身は消えません。'),
+          h('div', { class: 'row wrap' }, viewChk('hideSerial', 'シリアル番号'), viewChk('hideUrl', 'URL', (on) => { hideUrlNote.hidden = !on; }), viewChk('hideEmail', 'メール'), viewChk('hideFile', 'ファイル'), viewChk('hideDates', '日付')),
+          hideUrlNote)),
     ]],
     ['autofill', '自動入力', [
       autofillBox,
+      host.isAndroid ? section('公式サイトを開くブラウザ', andBrowser.map((x) => x.row)) : null,
       host.isDesktop ? [
         section('自動入力（ブラウザなどへの入力）',
           field('ホットキー', hotkey, '入力したい画面でこのキーを押すと、アイテムを選んで入力できます'),
@@ -2676,6 +2743,7 @@ async function settingsDialog() {
   settings.theme = theme.value;
   settings.colorChars = colorChars.checked;
   settings.phoneShowId = phoneShowId.checked;
+  if (host.isAndroid) settings.androidBrowser = andBrowser.find((x) => x.r.checked)?.r.value || 'chrome';
   settings.view = vw;
   settings.validDays = Math.max(0, Math.min(3650, Number.isFinite(+validDays.value) ? +validDays.value : 365));
   settings.expiryNotify = expiryNotify.value;
@@ -3369,7 +3437,7 @@ async function officialListDialog() {
     body: [
       h('p', { class: 'small' }, '「URL の点検」や自動入力の前の確認で、登録した URL と照らし合わせている一覧です。どのドメインも実在することを確かめてから入れています。データはアプリの中にあり、外部へは送りません。'),
       search, count, list,
-      h('p', { class: 'muted small' }, 'ここに無いサービスは、点検で警告も「公式」の表示も出ません。よく使うサービスで足りないものがあれば、アプリの更新で追加できます。')],
+      h('p', { class: 'muted small' }, 'ここに無いサービスは、点検で警告も「公式」の表示も出ません。この一覧は、作者がアプリの更新のときに追加・修正します（ご自分では追加できません）。一覧に無いサービスでも、アイテムに公式サイトの URL を登録しておけば、自動入力の前のドメインの照合はそのまま働きます。')],
     buttons: [{ label: '閉じる', value: null, kind: 'primary' }],
   });
 }
@@ -3462,7 +3530,7 @@ async function autofillCard({ where = 'settings' } = {}) {
   const card = h('section', { class: `card${st.enabled ? '' : ' safety-card'}` },
     h('h2', { class: 'inline-ic' }, icon('key'), '他のアプリへの自動入力'),
     st.enabled
-      ? h('p', { class: 'small' }, '有効です。ログイン欄をタップすると「Kagibako で入力」が表示されます。Chrome・Brave などのブラウザでは、ブラウザ側の設定で「他のサービスを使用して自動入力」を選ぶ必要があります（使い方 →「ブラウザやアプリでログインする」）。')
+      ? h('p', { class: 'small' }, '有効です。ログイン欄をタップすると「Kagibako で入力」が表示されます。ブラウザは Chrome をおすすめします。Chrome では、Chrome 側の設定で「他のサービスを使用して自動入力」を選ぶ必要があります（使い方 →「ブラウザやアプリでログインする」）。ほかのブラウザでは、正しく動かないことがあります。')
       : [h('p', { class: 'small' }, 'Kagibako を「自動入力サービス」に設定すると、ヤフーなどのアプリやブラウザのログイン欄に、ボタン一つで ID・パスワードを入力できます。'),
         h('button', { class: 'btn primary', onclick: () => host.call('enableAutofill').catch((e) => toast(e.message)) }, '自動入力サービスに設定する')],
     where === 'settings' ? h('label', { class: 'check' }, autoPick, 'そのサイト（アプリ）に合うアイテムが1つだけなら、選ぶ画面を出さずにすぐ入力する（この端末にファイルが2つ以上あるときは、取り違えを防ぐため、いつも選ぶ画面を出します）') : null,
@@ -3478,7 +3546,7 @@ if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
 
 // スマホの画面（ui-phone.js）・PC の画面（ui-pc.js）から使う
 export {
-  pwHint, ibtn, $detail, $layout, $mbar, $tree, S, addFolder, addItem, autoTypeItem, charSpans, copyText, deleteNode, duplicateItem, editLocked, generatorDialog, helpDialog, helpTabs, lock, menuGroups, moveNode, moveTarget, openHelpTab, openOfficialSite, passwordHistoryDialog, printDialog, renderDetail, renderMain, renderTree, runMenu, save, select, selected, settings, sortSelected, startRename, phoneNewItem, toggleReadOnly, touch,
+  pwHint, ibtn, $detail, $layout, $mbar, $tree, S, addFolder, addItem, autoTypeItem, charSpans, copyText, deleteNode, duplicateItem, editLocked, generatorDialog, helpDialog, helpTabs, lock, menuGroups, moveNode, moveTarget, openHelpTab, openOfficialSite, passwordHistoryDialog, printDialog, renderDetail, renderMain, renderTree, runMenu, save, select, selected, settings, sortSelected, startRename, phoneNewItem, toggleReadOnly, touch, removeNode, setMobileDetail, bioSetupBox,
 };
 
 boot();
