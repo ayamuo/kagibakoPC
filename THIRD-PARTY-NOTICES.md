@@ -8,6 +8,7 @@ Kagibako を再配布するときは、このファイルと `app/licenses` フ�
 | --- | --- | --- | --- | --- |
 | [hash-wasm](https://github.com/Daninet/hash-wasm) 4.12.0 | 鍵の生成（Argon2id）。`app/vendor/argon2.umd.min.js` | MIT | Copyright (c) 2020 Dani Biró | [app/licenses/hash-wasm-MIT.txt](app/licenses/hash-wasm-MIT.txt) |
 | [Public Suffix List](https://publicsuffix.org/) | 偽サイト対策のドメインの境界の判定。`app/js/psl-data.js`（元データ `tools/psl/public_suffix_list.dat`） | Mozilla Public License 2.0 | Mozilla Foundation と寄稿者 | [app/licenses/MPL-2.0.txt](app/licenses/MPL-2.0.txt) |
+| [SecLists](https://github.com/danielmiessler/SecLists) の `Passwords/Common-Credentials/10k-most-common.txt` | パスワードの点検の「よく使われるパスワード」の判定。`app/js/common-passwords.js`（元データ `tools/common-passwords/10k-most-common.txt`） | MIT | Copyright (c) 2018 Daniel Miessler | [app/licenses/SecLists-MIT.txt](app/licenses/SecLists-MIT.txt) |
 | [Microsoft WebView2 SDK](https://www.nuget.org/packages/Microsoft.Web.WebView2) 1.0.3179.45 | 画面の表示（`Kagibako.exe` に組み込み） | BSD 3-Clause | Copyright (C) Microsoft Corporation | [app/licenses/WebView2-SDK-BSD-3-Clause.txt](app/licenses/WebView2-SDK-BSD-3-Clause.txt) |
 
 ## 補足

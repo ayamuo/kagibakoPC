@@ -1,9 +1,12 @@
 // パスワードの点検（使い回し・弱いもの）
 // すべてこの端末の中で調べる。パスワードを外部へ送ったり、ネットの流出リストと照らし合わせたりはしない
 import { estimateBits } from './generator.js';
+import { COMMON_PASSWORDS } from './common-passwords.js';
 
 // よく使われるパスワード（流出した一覧の上位によく出てくるもの）。小文字で比べる
+// 1万件の一覧（SecLists。common-passwords.js）に、日本でよく見るものなどを足す
 const COMMON = new Set([
+  ...COMMON_PASSWORDS.split('\n'),
   'password', 'passw0rd', 'pass', 'pass1234', 'password1', 'password123', 'p@ssw0rd', 'p@ssword',
   '123456', '1234567', '12345678', '123456789', '1234567890', '12345', '1234', '123123', '654321', '112233', '121212',
   '111111', '000000', '666666', '888888', '777777', '7777777', '11111111', '00000000', '987654321',

@@ -3451,7 +3451,7 @@ function aboutDialog() {
       h('p', { class: 'muted small' }, '.idm 形式のファイルは、読み込んで .kagi 形式に移すことができます。'),
       h('p', { class: 'muted small' }, `この端末の名前: ${settings.deviceName}`),
       h('p', { class: 'small' }, '© 2026 ayamuo　Kagibako ライセンス（無料で使用・改変・再配布できます。販売・有料での配布は禁止です。無保証で、作者はサポートや損害の責任を負いません）'),
-      h('p', { class: 'muted small' }, `同梱しているソフトウェア：hash-wasm（MIT）、Public Suffix List（MPL 2.0）、${host.isAndroid ? 'AndroidX Webkit・Kotlin 標準ライブラリ（Apache 2.0）' : 'Microsoft WebView2 SDK（BSD 3-Clause）、.NET ランタイム（MIT）'}`)],
+      h('p', { class: 'muted small' }, `同梱しているソフトウェア・データ：hash-wasm（MIT）、Public Suffix List（MPL 2.0）、SecLists のよく使われるパスワードの一覧（MIT）、${host.isAndroid ? 'AndroidX Webkit・Kotlin 標準ライブラリ・Material Icons の通知の絵（Apache 2.0）' : 'Microsoft WebView2 SDK（BSD 3-Clause）、.NET ランタイム（MIT）'}`)],
     buttons: [{ label: 'ライセンスの全文', value: 'licenses' }, { label: '閉じる', value: null, kind: 'primary' }],
   }).then((v) => (v === 'licenses' ? licensesDialog() : undefined));
 }
@@ -3462,8 +3462,9 @@ async function licensesDialog() {
     ['Kagibako-LICENSE.txt', 'Kagibako（Kagibako ライセンス）'],
     ['hash-wasm-MIT.txt', 'hash-wasm（MIT）'],
     ['MPL-2.0.txt', 'Public Suffix List（MPL 2.0）'],
+    ['SecLists-MIT.txt', 'SecLists のよく使われるパスワードの一覧（MIT）'],
     // PC版とスマホ版で、同梱しているものだけを出す
-    host.isAndroid ? ['Apache-2.0.txt', 'AndroidX Webkit・Kotlin 標準ライブラリ（Apache 2.0）'] : ['WebView2-SDK-BSD-3-Clause.txt', 'Microsoft WebView2 SDK（BSD 3-Clause）'],
+    host.isAndroid ? ['Apache-2.0.txt', 'AndroidX Webkit・Kotlin 標準ライブラリ・Material Icons（Apache 2.0）'] : ['WebView2-SDK-BSD-3-Clause.txt', 'Microsoft WebView2 SDK（BSD 3-Clause）'],
   ];
   const text = h('pre', { class: 'license-text' }, '読み込み中…');
   const show = async (file) => {

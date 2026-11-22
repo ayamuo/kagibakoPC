@@ -588,6 +588,19 @@ await test('弱いパスワードを見つけ、強いものは通す', () => {
   assert.equal(HL.checkPassword('correcthorsebatterystaple'), null, '長い英字だけは問題にしない');
   assert.equal(HL.checkPassword(''), null);
 });
+await test('よく使われるパスワードの一覧（SecLists の1万件＋日本でよく見るもの）', async () => {
+  const { COMMON_PASSWORDS } = await appJs('common-passwords.js');
+  const list = COMMON_PASSWORDS.split('\n');
+  assert.ok(list.length >= 10000, `件数 ${list.length}`);
+  assert.ok(list.every((w) => w && w === w.toLowerCase() && !/\s/.test(w)), '小文字・空白なし');
+  const common = (pw) => (HL.checkPassword(pw)?.reasons || []).includes('よく使われるパスワード');
+  assert.ok(common('Dragon'), '一覧にある（大文字小文字は区別しない）');
+  assert.ok(common('letmein'));
+  assert.ok(common('starwars1987!'), '一覧の言葉の後ろに数字・記号を足しただけ');
+  assert.ok(common('naruto'), '前からある日本向けの言葉も残す');
+  assert.ok(!common('Kq7#vT2p!mZ9wL4s'), '強いものは一覧に当たらない');
+  assert.ok(!common('mydragonhouse77'), '一覧の言葉を途中に含むだけでは当てない');
+});
 await test('使い回しをまとめ、暗証番号らしいものは分ける', () => {
   const e = (name, password, extra = {}) => ({ node: { id: name, name, password, ...extra }, path: [] });
   const res = HL.analyzePasswords([e('A', 'Same-Pass-91!x'), e('B', 'Same-Pass-91!x'), e('C', 'Same-Pass-91!x'), e('D', 'Other-Pass-55#q'),
