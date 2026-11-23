@@ -492,6 +492,82 @@ await test('一覧の形式：ID の重複なし・公式 URL は自分の公式
     assert.ok(BC.isGroupDomain(b, Dm.hostOf(b.url)), `公式 URL が公式ドメインにない: ${b.id}`);
   }
 });
+await test('一覧の分け方：どのサービスも、大項目・中項目のどれか1つに入っている', async () => {
+  const { CATEGORIES } = await import(pathToFileURL(path.join(here, '..', 'app', 'js', 'brands.js')).href);
+  const mids = CATEGORIES.flatMap(([, m]) => m);
+  assert.equal(new Set(mids).size, mids.length, '中項目の名前は重ならない');
+  for (const b of BRANDS) assert.ok(mids.includes(b.cat), `分け方にない cat: ${b.id} ${b.cat}`);
+  for (const m of mids) assert.ok(BRANDS.some((b) => b.cat === m), `中身のない中項目: ${m}`);
+});
+await test('一覧のどの公式ドメインも「似せたドメイン」と判定しない（追加で取り違えが増えていない）', () => {
+  for (const d of new Set(BRANDS.flatMap((b) => b.domains))) assert.equal(BC.lookalike(d), null, `誤検知: ${d}`);
+});
+await test('2026-11-23 に足した金融機関：タイトルで見分け、ログインのドメインを公式と判定する', () => {
+  const t = (s) => BC.brandOfTitle(s)?.id;
+  assert.equal(t('auじぶん銀行'), 'jibunbank', 'au より長い呼び名を優先');
+  assert.equal(t('auカブコム証券'), 'kabucom', '社名変更前の呼び名でも');
+  assert.equal(t('七十七銀行'), '77bank');
+  assert.equal(t('しがぎん'), 'shigagin');
+  assert.equal(t('セディナ'), 'smbc-card', '三井住友カードに統合済み');
+  assert.equal(t('dカード'), 'docomo', 'dカードはドコモの項目');
+  assert.equal(t('ブレイクダンス'), undefined, 'カタカナ語の途中の「レイク」は拾わない');
+  assert.equal(t('コンプロミス'), undefined);
+  assert.equal(t('BOOKBANK'), undefined, '英字の途中の OKB は拾わない');
+  // ログインが別のドメイン（共同のインターネットバンキングを含む）でも、公式と判定する
+  for (const [name, url] of [['七十七銀行', 'https://www.parasol.anser.ne.jp/ib/index.do?PT=BS&CCT0080=0125'], ['八十二銀行', 'https://direct1.82bank.co.jp/'],
+    ['東邦銀行', 'https://bb3.ib.finemax.net/'], ['十六銀行', 'https://www.inb.jurokubank.chance.co.jp/'], ['大垣共立銀行', 'https://okbnetplaza.com/'],
+    ['トヨタファイナンス', 'https://my.tscubic.com/'], ['BITPOINT', 'https://trades.bpj-ex.com/'], ['三菱UFJ eスマート証券', 'https://mauth-sso.kabu.co.jp/']]) {
+    assert.equal(BC.checkItem({ name, url }).level, 'ok', `${name} ${url}`);
+  }
+  for (const d of ['jibunbank-login.com', '77bank.co.jp.secure-login.net', 'bitbank-jp.cc', 'sbineotrade-jp.com']) assert.ok(BC.lookalike(d), `見逃し: ${d}`);
+});
+await test('2026-11-23 に足した飲食・家電・行政・ゲーム：見分けと誤検知', () => {
+  const t = (s) => BC.brandOfTitle(s)?.id;
+  assert.equal(t('マクド'), 'mcdonalds');
+  assert.equal(t('スタバ'), 'starbucks');
+  assert.equal(t('ガスト'), 'skylark');
+  assert.equal(t('パズドラ'), 'gungho');
+  assert.equal(t('スカラネット'), 'jasso');
+  assert.equal(t('Wolt'), undefined, '日本で終了した Wolt は外した');
+  assert.ok(BRANDS.some((b) => b.id === 'yodobashi' && b.cat === '家電量販店・パソコン'), '家電量販店は専用のカテゴリ');
+  assert.ok(BRANDS.some((b) => b.id === 'demaecan' && b.cat === 'デリバリー・グルメ・レシピ'), '出前館は飲食のカテゴリ');
+  for (const d of ['mcdonalds-jp.com', 'starbucks-card.net', 'sukiya-login.com', 'dominos-pizza-login.com']) assert.ok(BC.lookalike(d), `見逃し: ${d}`);
+  for (const d of ['pretty.com', 'doctor.com', 'mydoctor.jp', 'stayathome.jp']) assert.equal(BC.lookalike(d), null, `誤検知: ${d}`);
+  assert.equal(BC.checkItem({ name: '登記', url: 'https://www.touki-kyoutaku-online.moj.go.jp/' }).official[0]?.id, 'moj-touki');
+});
+await test('利用者の多いサービスの追加（コンビニ・ドラッグストア・マンガ・チケット・求人 など）', () => {
+  const t = (s) => BC.brandOfTitle(s)?.id;
+  assert.equal(t('ローソン'), 'lawson');
+  assert.equal(t('ローソン銀行'), 'lawsonbank', '長い呼び名が優先');
+  assert.equal(t('ローチケ'), 'ltike');
+  assert.equal(t('ファミマ'), 'familymart');
+  assert.equal(t('進研ゼミ'), 'benesse');
+  assert.equal(t('Google+'), 'google', '「e+」のような記号で終わる短い呼び名を入れない');
+  assert.equal(t('ぴあの教室'), undefined);
+  assert.equal(t('弥生'), undefined, '人名・月の名前にもなる言葉だけでは判定しない');
+  // ラクマは楽天のフリマ。fril.jp を楽天の公式ドメインに入れた（前は食い違いと出ていた）
+  const r = BC.checkItem({ name: 'ラクマ', url: 'https://fril.jp/' });
+  assert.equal(r.level, 'ok');
+  assert.equal(r.mismatch, false);
+  assert.ok(BRANDS.some((b) => b.id === 'duolingo' && b.cat === '学び・教育'));
+});
+await test('タイトルから考えられるサービスの候補と、候補から選んだサービスの判定', () => {
+  const names = (t) => BC.brandCandidates(t).map((b) => b.id);
+  const mitsui = names('三井住友');
+  assert.equal(mitsui[0], 'smbc', 'いちばん合うものが先頭（brandOfTitle と同じ）');
+  for (const id of ['smbc-card', 'smtb']) assert.ok(mitsui.includes(id), `候補に ${id}`);
+  assert.ok(names('楽天').includes('rakuten-bank'));
+  assert.deepEqual(names('社内システム'), [], '合うものがなければ候補なし');
+  assert.deepEqual(names('銀行'), [], '一般の言葉だけでは候補を出さない');
+  assert.equal(new Set(BC.brandCandidates('ゆうちょ銀行').map((b) => b.url)).size, BC.brandCandidates('ゆうちょ銀行').length, '同じ URL は1つ');
+  // 候補から三井住友信託銀行を選んだアイテム：タイトルが「三井住友」でも食い違いにしない
+  const picked = { name: '三井住友', url: 'https://www.smtb.jp/', brandHint: 'smtb' };
+  assert.equal(BC.checkItem(picked).titleBrand.id, 'smtb');
+  assert.equal(BC.checkItem(picked).mismatch, false);
+  assert.equal(BC.checkItem({ name: '三井住友', url: 'https://www.smtb.jp/' }).mismatch, true, '選んでいなければ今までどおり');
+  assert.equal(BC.checkItem({ name: '三井住友', url: 'https://www.smtb.jp/', brandHint: 'none' }).titleBrand, null, '「このサービスではない」も今までどおり');
+  assert.equal(BC.checkItem({ name: '三井住友', url: '', brandHint: 'no-such-brand' }).titleBrand.id, 'smbc', '知らない id はタイトルで判定');
+});
 await test('似せたドメインを見抜く', () => {
   for (const d of ['amaz0n.co.jp', 'amazon-security.com', 'rakuten-card-login.net', 'rakuten.co.jp.secure-login.com', 'rnicrosoft.com',
     'paypa1.com', 'appleid-support.com', 'myapple-id.com', 'yahoo-japan.net', 'jp-bank-japanpost.com', 'rakuten-login.github.io', 'smbc-card-jp.com',

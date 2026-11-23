@@ -20,6 +20,10 @@ for (const b of BRANDS) {
     OFFICIAL.get(d).push(b);
   }
 }
+// 共有するドメインでは、そのドメインを「いちばん目の公式ドメイン」にしているサービスを先にする
+// （yahoo.co.jp → Yahoo! JAPAN、rakuten.co.jp → 楽天。一覧のファイルの並び順に左右されないように）
+for (const [d, list] of OFFICIAL) OFFICIAL.set(d, [...list.filter((b) => b.domains[0] === d), ...list.filter((b) => b.domains[0] !== d)]);
+const BRAND_BY_ID = new Map(BRANDS.map((b) => [b.id, b]));
 const GROUP_DOMAINS = new Map();
 for (const b of BRANDS) {
   if (!GROUP_DOMAINS.has(b.group)) GROUP_DOMAINS.set(b.group, new Set());
@@ -32,7 +36,8 @@ const labelOf = (domain) => String(domain).split('.')[0];
 // 似せたドメインの判定に使う名前（4文字以上）。短すぎる名前（au・ana・jal など）は誤検知が多いので使わない
 const KNOWN_LABELS = new Map(); // ラベル → サービス
 // その名前を「いちばん目の公式ドメイン」にしているサービスを優先する（yahoo → Yahoo! JAPAN、smbc-card → 三井住友カード）
-const PREFER = { yahoo: 'yahoo-jp' };
+// lycorp（LINEヤフー）は LINE と Yahoo! JAPAN の両方の2つ目のドメインなので、LINE に決めておく（並べ替えの前と同じ）
+const PREFER = { yahoo: 'yahoo-jp', lycorp: 'line' };
 for (const pass of [0, 1]) {
   for (const b of BRANDS) {
     for (const d of pass === 0 ? b.domains.slice(0, 1) : b.domains) {
@@ -69,7 +74,9 @@ const GENERIC = new Set(['line', 'note', 'zoom', 'visa', 'uber', 'slack', 'steam
   'chuden', 'recruit', 'shein', 'temu', 'ponta', 'hatena', 'nifty', 'muji', 'askul', 'orico', 'epos', 'sony',
   'jalan', 'agoda', 'unext', 'kyash', 'gnavi', 'freee', 'konami',
   'wise', 'medium', 'hands', 'nojima', 'peach', 'battle', 'blizzard', 'asana', 'backlog', 'sakura', 'perplexity',
-  'honto', 'docker', 'times-info', 'dinos', 'miro', 'zenn', 'etsy', 'costco', 'ikea']);
+  'honto', 'docker', 'times-info', 'dinos', 'miro', 'zenn', 'etsy', 'costco', 'ikea',
+  // 2026-11-23 追加分（英単語・人名・ファンサイトでよく使われる名前：pretty→retty、doctor→doutor などを誤検知しない）
+  'retty', 'homes', 'athome', 'doutor', 'kojima', 'gungho', 'gamecity', 'pokemon', 'tsukumo', 'jasso', 'skylark', 'family', 'shimamura']);
 
 /** 見た目が似た文字をそろえる（0→o, 1→l, rn→m など） */
 function unconfuse(s) {
@@ -136,10 +143,13 @@ function lookalikeHost(host) {
   const hostLabels = host.split('.').map(unconfuse);
   const tokens = label.split('-').filter(Boolean);
   let best = null;
-  for (const [k, brand] of KNOWN_LABELS) {
+  for (const [k0, brand] of KNOWN_LABELS) {
+    // 比べる側（label・hostLabels）は見た目の似た文字をそろえてあるので、公式の名前も同じようにそろえて比べる
+    // （そろえないと、77bank・82bank・0101 など数字の入った名前の偽ドメインを見逃す）。ふつうの単語かどうかは元の名前で見る
+    const k = unconfuse(k0);
     let reason = null;
     if (label === k) reason = 'same-name';
-    else if (GENERIC.has(k)) continue; // ふつうの単語は「同じ名前」だけ見る（steam → stream、canva → canvas などを誤検知しない）
+    else if (GENERIC.has(k0)) continue; // ふつうの単語は「同じ名前」だけ見る（steam → stream、canva → canvas などを誤検知しない）
     else if (tokens.includes(k) || (k.length >= 6 && label.includes(k))) reason = 'contains';
     else if (k.length >= 5 && wrappedByPhishWords(label, k)) reason = 'contains';
     else if (k.length >= 5 && Math.abs(label.length - k.length) <= 2 && typoDistance(label, k) <= (k.length >= 8 ? 2 : 1)) reason = 'typo';
@@ -168,22 +178,51 @@ export function brandOfTitle(title) {
   return cached(TITLE_CACHE, t, () => brandOfNormTitle(t));
 }
 
+/** 呼び名がタイトルの中に「言葉として」入っているか */
+function aliasIn(t, { a, ascii, kata }) {
+  for (let i = t.indexOf(a); i >= 0; i = t.indexOf(a, i + 1)) {
+    const before = t[i - 1] || ' ', after = t[i + a.length] || ' ';
+    // 英字の呼び名は単語として一致したときだけ（"online" の中の "line" などを拾わない）
+    // カタカナの呼び名は、長いカタカナ語の後ろ半分では一致させない（オン「ライン」→ LINE などを拾わない）
+    if (ascii ? !/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after) : !(kata && KATAKANA.test(before))) return true;
+  }
+  return false;
+}
+
 function brandOfNormTitle(t) {
   let best = null;
-  for (const { a, brand, ascii, kata } of ALIASES) {
-    if (best && a.length <= best.len) continue;
-    let i = t.indexOf(a);
-    let ok = false;
-    while (i >= 0 && !ok) {
-      const before = t[i - 1] || ' ', after = t[i + a.length] || ' ';
-      // 英字の呼び名は単語として一致したときだけ（"online" の中の "line" などを拾わない）
-      // カタカナの呼び名は、長いカタカナ語の後ろ半分では一致させない（オン「ライン」→ LINE などを拾わない）
-      ok = ascii ? !/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after) : !(kata && KATAKANA.test(before));
-      i = t.indexOf(a, i + 1);
-    }
-    if (ok) best = { brand, len: a.length };
+  for (const e of ALIASES) {
+    if (best && e.a.length <= best.len) continue;
+    if (aliasIn(t, e)) best = { brand: e.brand, len: e.a.length };
   }
   return best?.brand || null;
+}
+
+/**
+ * タイトルから考えられるサービスの候補（いちばん合うものが先頭。brandOfTitle と同じもの）。
+ * タイトルに呼び名が入っているほかのサービスと、いちばん合うサービスと同じグループのサービスも、合う順に並べる。
+ * 例：「三井住友」→ 三井住友銀行・三井住友カード・三井住友信託銀行・三井住友海上 …
+ */
+export function brandCandidates(title, { max = 8 } = {}) {
+  const t = norm(title);
+  if (!t) return [];
+  const best = brandOfTitle(title);
+  const score = new Map(); // サービス → いちばん長く一致した呼び名の長さ
+  for (const e of ALIASES) if (aliasIn(t, e) && (score.get(e.brand) || 0) < e.a.length) score.set(e.brand, e.a.length);
+  // タイトルが呼び名の頭と同じもの（「三井住友」→ 三井住友信託銀行・三井住友海上）。いちばん合うものがあるときだけ、低い順位で足す
+  const tt = t.trim();
+  if (best && tt.length >= 2) for (const e of ALIASES) if (e.a.length > tt.length && e.a.startsWith(tt) && !score.has(e.brand)) score.set(e.brand, 0);
+  const list = [...score.entries()].sort((x, y) => y[1] - x[1]).map(([b]) => b);
+  if (best) for (const b of BRANDS) if (b.group === best.group && !score.has(b)) list.push(b);
+  // 同じ公式 URL のものは1つにまとめる（ゆうちょ銀行と日本郵便 など）
+  const seen = new Set(best ? [best.url] : []);
+  const out = best ? [best] : [];
+  for (const b of list) {
+    if (b === best || seen.has(b.url)) continue;
+    seen.add(b.url);
+    out.push(b);
+  }
+  return out.slice(0, max);
 }
 
 /** そのサービス（同じグループ）の公式ドメインか */
@@ -201,7 +240,8 @@ export function isGroupDomain(brand, domain) {
 export function checkItem(item) {
   const host = hostOf(item?.url);
   // 「このサービスではない」と指定したアイテムは、タイトルからの判定をしない（偽ドメインの点検は続ける）
-  const titleBrand = item?.brandHint === 'none' ? null : brandOfTitle(item?.name);
+  // 候補から選んだアイテム（brandHint にサービスの id）は、タイトルより選んだサービスを優先する
+  const titleBrand = item?.brandHint === 'none' ? null : (BRAND_BY_ID.get(item?.brandHint) || brandOfTitle(item?.name));
   // 利用者が「本物と確認した」ドメイン（このアイテムだけに効く）。誤って偽物と判定されたときの逃げ道
   const verified = verifiedSet(item);
   const out = { level: 'unknown', domain: '', official: [], lookalike: null, titleBrand, mismatch: false, userVerified: false, suggestUrl: '', warnings: [], badAllowed: [] };

@@ -14,7 +14,7 @@ import * as CSV from './csv.js';
 import * as D from './domain.js';
 import * as BC from './brandcheck.js';
 import * as HL from './health.js';
-import { BRANDS } from './brands.js';
+import { BRANDS, CATEGORIES } from './brands.js';
 import { GUIDE, DISCLAIMER, DISCLAIMER_VERSION } from './guide.js';
 import { HOWTO, FAQ, SHORTCUTS, forHost } from './help.js';
 import { icon } from './icons.js';
@@ -1161,10 +1161,27 @@ function itemView({ node: it, parent, path }) {
     const hst = D.hostOf(it.url);
     const chk = BC.checkItem(it);
     if (!hst) {
+      // タイトルから考えられるほかのサービス（「三井住友」→ 銀行・カード・信託…）。開いて確かめてから選べるように
+      const others = chk.titleBrand ? BC.brandCandidates(it.name).filter((b) => b !== chk.titleBrand) : [];
+      const openBtn = (b) => h('button', { class: 'btn small', title: b.url, onclick: () => openOfficialSite({ url: b.url }) }, '開く');
+      // 候補から選んだら、このアイテムはそのサービスだと覚える（タイトルと違うサービスでも「食い違い」と言わないように）
+      const pick = (b) => {
+        if (ro) return;
+        if (b === BC.brandOfTitle(it.name)) delete it.brandHint; else it.brandHint = b.id;
+        useOfficialUrl(b);
+      };
       clear(sitePanel,
         chk.suggestUrl && chk.titleBrand
           ? h('div', { class: 'brand-suggest small' }, `「${chk.titleBrand.name}」の公式サイト: `, h('span', { class: 'mono' }, chk.suggestUrl), ' ',
-            ro ? null : h('button', { class: 'btn small', onclick: () => useOfficialUrl(chk.titleBrand) }, 'この URL を登録'), ' ', notThisBtn(chk.titleBrand))
+            openBtn(chk.titleBrand), ' ',
+            ro ? null : h('button', { class: 'btn small', onclick: () => pick(chk.titleBrand) }, 'この URL を登録'), ' ', notThisBtn(chk.titleBrand),
+            others.length ? h('details', { class: 'brand-others' },
+              h('summary', {}, `ほかの候補（${others.length}）`),
+              others.map((b) => h('div', { class: 'brand-other' },
+                h('span', { class: 'brand-other-name' }, b.name), h('span', { class: 'mono muted' }, b.url),
+                h('span', { class: 'brand-other-btns' }, openBtn(b), ro ? null : h('button', { class: 'btn small', onclick: () => pick(b) }, '登録'))))) : null,
+            // 一覧は作者が確かめた時点のもの。最後に確かめるのは利用者
+            h('p', { class: 'muted small brand-note' }, 'ドメインは会社の都合で変わることがあります。登録する前に［開く］で確かめ、最終的な判断はご自身で行ってください。'))
           : h('span', { class: 'muted small' }, 'URL を登録すると、ここから公式サイトを開けます（メールのリンクを踏まずに済みます）。'),
         hintOffNote(),
         chk.badAllowed.map((b) => h('div', { class: 'warn small danger-box' }, icon('warning'), ` 許可したドメイン ${b.domain}: `, BC.lookalikeText(b.lookalike), ' ', verifyBtn(b.domain, b.lookalike))));
@@ -3411,22 +3428,40 @@ async function officialListDialog() {
   const norm = (s) => String(s || '').normalize('NFKC').toLowerCase();
   const search = h('input', { type: 'search', placeholder: 'サービス名・呼び名・ドメインで探す（例：楽天、hepco、銀行）', 'aria-label': '一覧を検索' });
   const list = h('div', { class: 'official-list' });
-  const count = h('p', { class: 'muted small' });
-  const cats = [...new Set(BRANDS.map((b) => b.cat))];
+  const count = h('span', { class: 'muted small' });
+  // 開いている項目を一度に閉じる（大項目・中項目・サービスの中身のすべて）
+  const closeAll = h('button', { class: 'btn small', type: 'button', onclick: () => list.querySelectorAll('details[open]').forEach((d) => { d.open = false; }) }, 'すべて閉じる');
   const draw = () => {
     const q = norm(search.value).trim();
-    const hit = (b) => !q || norm([b.name, b.cat, ...b.aliases, ...b.domains].join(' ')).includes(q);
+    const tops = new Map(CATEGORIES.flatMap(([top, mids]) => mids.map((m) => [m, top])));
+    const hit = (b) => !q || norm([b.name, b.cat, tops.get(b.cat), ...b.aliases, ...b.domains].join(' ')).includes(q);
     const shown = BRANDS.filter(hit);
     count.textContent = q ? `${shown.length} 件 見つかりました（全 ${BRANDS.length} 件）` : `全 ${BRANDS.length} 件`;
-    clear(list, cats.map((cat) => {
-      const rows = shown.filter((b) => b.cat === cat);
-      if (!rows.length) return null;
-      return h('details', { class: 'official-cat', open: true },
-        h('summary', {}, `${cat}（${rows.length}）`),
-        h('table', { class: 'official-table' }, rows.map((b) => h('tr', {},
-          h('th', {}, b.name, h('div', { class: 'muted small' }, b.aliases.filter((a) => a !== b.name).slice(0, 6).join('・'))),
-          h('td', {}, b.domains.map((d) => h('span', { class: 'chip ok mono' }, d))),
-          h('td', { class: 'official-open' }, h('button', { class: 'btn small', title: b.url, onclick: () => openOfficialSite({ url: b.url }) }, '開く'))))));
+    const openBtn = (b) => h('button', { class: 'btn small', title: b.url, onclick: () => openOfficialSite({ url: b.url }) }, '開く');
+    // スマホ：サービス名だけを並べ、名前を押すとすぐ下に呼び名・ドメイン・［開く］を出す（縦に長くなりすぎないように）
+    // PC：今までどおりの表
+    const rowsOf = (rows) => (isPhone()
+      ? h('div', { class: 'official-names' }, rows.map((b) => h('details', { class: 'official-item' },
+        h('summary', {}, b.name),
+        h('div', { class: 'official-detail' },
+          b.aliases.some((a) => a !== b.name) ? h('p', { class: 'muted small' }, b.aliases.filter((a) => a !== b.name).join('・')) : null,
+          h('div', { class: 'official-domains' }, b.domains.map((d) => h('span', { class: 'chip ok mono' }, d))),
+          openBtn(b)))))
+      : h('table', { class: 'official-table' }, rows.map((b) => h('tr', {},
+        h('th', {}, b.name, h('div', { class: 'muted small' }, b.aliases.filter((a) => a !== b.name).slice(0, 6).join('・'))),
+        h('td', {}, b.domains.map((d) => h('span', { class: 'chip ok mono' }, d))),
+        h('td', { class: 'official-open' }, openBtn(b))))));
+    // 大項目 → 中項目 → サービス。スマホは閉じて始め、PC は開いて始める。探したときは当たったところを開く
+    const startOpen = !!q || !isPhone();
+    clear(list, CATEGORIES.map(([top, mids]) => {
+      const groups = mids.map((mid) => [mid, shown.filter((b) => b.cat === mid)]).filter(([, rows]) => rows.length);
+      if (!groups.length) return null;
+      const n = groups.reduce((s, [, rows]) => s + rows.length, 0);
+      return h('details', { class: 'official-cat', open: startOpen },
+        h('summary', {}, `${top}（${n}）`),
+        groups.map(([mid, rows]) => h('details', { class: 'official-sub', open: startOpen },
+          h('summary', {}, `${mid}（${rows.length}）`),
+          rowsOf(rows))));
     }), shown.length ? null : h('p', { class: 'muted' }, '見つかりません。一覧に無いサービスは、URL の点検では「分からない」として扱います。'));
   };
   search.addEventListener('input', draw);
@@ -3436,7 +3471,9 @@ async function officialListDialog() {
     wide: true,
     body: [
       h('p', { class: 'small' }, '「URL の点検」や自動入力の前の確認で、登録した URL と照らし合わせている一覧です。どのドメインも実在することを確かめてから入れています。データはアプリの中にあり、外部へは送りません。'),
-      search, count, list,
+      h('p', { class: 'warn small' }, '⚠ ドメインは、会社の都合（社名の変更・統合・サービスの終了など）で変わることがあります。この一覧は作者が確かめた時点のもので、正しさを保証するものではありません。URL を登録する前に［開く］で公式サイトか確かめ、最終的な判断はご自身で行ってください。'),
+      // 検索欄・件数・［すべて閉じる］は、スクロールしても上に残す
+      h('div', { class: 'official-search' }, search, h('div', { class: 'official-search-row' }, count, closeAll)), list,
       h('p', { class: 'muted small' }, 'ここに無いサービスは、点検で警告も「公式」の表示も出ません。この一覧は、作者がアプリの更新のときに追加・修正します（ご自分では追加できません）。一覧に無いサービスでも、アイテムに公式サイトの URL を登録しておけば、自動入力の前のドメインの照合はそのまま働きます。')],
     buttons: [{ label: '閉じる', value: null, kind: 'primary' }],
   });

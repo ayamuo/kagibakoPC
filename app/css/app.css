@@ -547,6 +547,15 @@ select { cursor: pointer; }
 .danger-box { border-left-color: var(--danger) !important; }
 .info-box { background: var(--info-bg); border-left: 4px solid var(--accent); padding: .45rem .7rem; border-radius: 4px; }
 .brand-suggest { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
+/* タイトルから考えられるほかのサービス（押すと開く） */
+.brand-others { flex-basis: 100%; margin-top: .2rem; }
+.brand-note { flex-basis: 100%; margin: .1rem 0 0; }
+.brand-others > summary { cursor: pointer; color: var(--accent); width: max-content; }
+/* 左に名前と URL（2行）、右に［開く］［登録］ */
+.brand-other { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "name btns" "url btns"; align-items: center; gap: .05rem .6rem; padding: .4rem 0 .4rem 1rem; border-top: 1px solid var(--line); }
+.brand-other-name { grid-area: name; font-weight: 600; }
+.brand-other .mono { grid-area: url; overflow-wrap: anywhere; font-size: .9em; }
+.brand-other-btns { grid-area: btns; display: flex; gap: .3rem; }
 .audit-summary { display: flex; flex-wrap: wrap; gap: .3rem; margin: .4rem 0 .6rem; }
 .chip.danger-chip { border-color: var(--danger); color: var(--danger); }
 .chip.warn-chip { border-color: var(--warn-line); }
@@ -602,12 +611,31 @@ select { cursor: pointer; }
 .official-list { margin-top: .4rem; }
 .official-cat { margin: .4rem 0; border: 1px solid var(--line); border-radius: 6px; padding: .2rem .6rem; }
 .official-cat summary { cursor: pointer; font-weight: 600; padding: .2rem 0; }
+/* カテゴリ（大項目）は真鍮色の帯にして、中のサービス名と見分けやすくする */
+.official-cat > summary { margin: 0 -.6rem; padding: .45rem .6rem; border-radius: 5px; background: var(--accent-soft); color: var(--accent); border-left: 4px solid var(--accent); }
+.official-cat[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; margin-bottom: .2rem; }
 .official-table { width: 100%; border-collapse: collapse; font-size: .9em; }
 .official-table tr { border-top: 1px solid var(--line); }
 .official-table th { text-align: left; font-weight: 600; padding: .3rem .5rem .3rem 0; width: 34%; vertical-align: top; }
 .official-table td { padding: .3rem .3rem; vertical-align: top; }
 .official-table .chip { font-size: .8rem; }
 .official-open { width: 1%; white-space: nowrap; text-align: right; }
+/* 検索欄と件数は、スクロールしても上に残す（.modal-body の上の余白ぶん上へずらして隙間を作らない） */
+.official-search { position: sticky; top: -.25rem; z-index: 1; background: var(--panel); padding: .25rem 0 .1rem; }
+.official-search input { width: 100%; }
+.official-search-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: .3rem 0 .1rem; }
+/* 中項目：大項目（真鍮色の帯）より一段控えめ（細い線の帯・少し右に寄せる）。中のサービス名とも見分けられるように */
+.official-sub { margin: .25rem 0 .25rem .5rem; }
+.official-sub > summary { cursor: pointer; font-weight: 600; padding: .35rem .5rem; border-radius: 4px; border-left: 3px solid var(--accent-fill-2); background: color-mix(in srgb, var(--accent-soft) 45%, transparent); color: var(--text); }
+.official-sub[open] > summary { margin-bottom: .15rem; }
+/* スマホ：カテゴリの中はサービス名だけ。押すとすぐ下に詳しい中身 */
+.official-names { display: flex; flex-direction: column; }
+.official-item { border-top: 1px solid var(--line); }
+.official-item > summary { cursor: pointer; padding: .55rem .2rem; list-style-position: inside; color: var(--text); font-weight: 400; }
+.official-item[open] > summary { font-weight: 600; }
+.official-detail { padding: 0 .2rem .6rem 1.1rem; display: flex; flex-direction: column; align-items: flex-start; gap: .35rem; }
+.official-detail p { margin: 0; }
+.official-domains { display: flex; flex-wrap: wrap; gap: .3rem; }
 
 /* ---- タイトルを1行に・閲覧のみとロックの見分け・生成画面の大きさを固定 ---- */
 .title-row .title-input { font-size: 1.05rem; }
