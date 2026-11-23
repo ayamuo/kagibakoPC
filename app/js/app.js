@@ -22,7 +22,7 @@ import { phoneRow, renderPhoneList, phoneItemView, menuDialog, isPhone, phoneVie
 import { startPractice } from './practice.js';
 import { closeDropdown, setupTreeDnD, menuBar, treeContextMenu, applyLayoutSettings, splitter, shortcutsDialog, treeArrowKeys, treeDraggable } from './ui-pc.js';
 
-const APP_VERSION = '0.9.2';
+const APP_VERSION = '0.9.3';
 // スマホ版を Play ストアで公開したら true にする（「このアプリをレビューする」を出し、紹介の URL をストアのページにする）
 const PLAY_STORE_LISTED = false;
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=jp.kagibako';
