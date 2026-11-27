@@ -13,7 +13,7 @@
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <Product>Kagibako</Product>
-    <Version>0.9.3</Version>
+    <Version>0.9.4</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <!-- 配布用：.NET ランタイムを exe に組み込み、別途インストールしなくても動くようにする -->
     <SelfContained>true</SelfContained>
