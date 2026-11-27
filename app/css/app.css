@@ -976,3 +976,6 @@ p.af-file { font-size: 1.05rem; }
 .m-crumb.m-crumb-wait { background: var(--accent-soft); }
 /* 階層を変えたあと、指の動きを受け取り続けるために隠して残す元の要素 */
 .m-drag-held { display: none !important; }
+
+/* ファイルの場所・エラーの文など、長い1語でも画面からはみ出さないよう折り返す */
+.path-text { overflow-wrap: anywhere; word-break: break-all; }

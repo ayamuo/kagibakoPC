@@ -127,7 +127,85 @@ function markDirty() {
 }
 
 // ---------------- 起動 ----------------
+// 起動の途中で何が起きても「読み込み中…」のまま止めない。
+//   ・アプリの設定など（設定・最近使ったファイルなど）が読めない → 初期値で進め、知らせる（.kagi ファイルは別なので開ける）
+//   ・ほかのエラー → どこで何が起きたかと［もう一度読み込む］を出す（showBootError）
+//   ・このファイル自体が読み込めない・返事を待ったまま進まない → js/boot-watch.js の見張りが 15 秒後に知らせる
+let bootStep = 'アプリの読み込み';
+function setBootStep(s) { bootStep = s; window.__kagibakoBootStep = s; }
+
 async function boot() {
+  try {
+    await bootInner();
+  } catch (e) {
+    console.error(e);
+    showBootError(e);
+  }
+}
+
+// 「アプリの設定など」が壊れたときに、ID・パスワードの入ったファイルが壊れたと勘違いしないよう、いつも同じ言い方で添える
+const KAGI_SAFE = 'ID・パスワードなどのアカウント情報は、あなたの .kagi ファイルに入っていて、無事です。';
+const MEMO_WHAT = 'アプリの設定など（設定・最近使ったファイルの一覧・端末内の控え・ロック中の下書き）';
+const KAGI_UNTOUCHED = host.isDesktop ? '.kagi ファイルと自動バックアップには触りません' : '.kagi ファイルには触りません'; // 自動バックアップは PC 版だけ
+
+function showBootError(e) {
+  // 画面がもう出ているときは、知らせるだけにする（使える画面を消さない）
+  if (!$app.querySelector('.boot')) { toast(`起動の途中でエラーが起きました（${bootStep}: ${errText(e)}）。${KAGI_SAFE}`, 9000); return; }
+  clear($app, h('div', { class: 'center-card boot-error' },
+    h('h1', {}, '起動できませんでした'),
+    h('p', { class: 'info-box' }, KAGI_SAFE),
+    h('p', {}, '起動の途中でエラーが起きました。'),
+    h('table', { class: 'kv' },
+      h('tr', {}, h('th', {}, 'どこで'), h('td', {}, bootStep)),
+      h('tr', {}, h('th', {}, '内容'), h('td', { class: 'mono path-text' }, errText(e)))),
+    h('div', { class: 'row wrap' },
+      h('button', { class: 'btn', onclick: () => resetMemoFlow() }, 'アプリの設定などを初期化'),
+      h('button', { class: 'btn primary', onclick: () => location.reload() }, 'もう一度読み込む')),
+    h('p', { class: 'muted small' }, `何度も起きる場合は、Kagibako を終了してから起動し直してください。それでも直らないときは［アプリの設定などを初期化］を試してください（${MEMO_WHAT}を空にします。${KAGI_UNTOUCHED}）。直らないときは、この画面の「どこで」「内容」を作者に知らせてください。`)));
+}
+
+/**
+ * アプリの設定などを初期化する（設定の画面・知らせ・起動できなかった画面から）。
+ * PC版・Android版は保存場所をまるごと退ける（消さないので戻せる）。終わったら読み込み直す
+ */
+async function resetMemoFlow() {
+  if (S.dirty) {
+    await modal({ title: '先に保存してください', body: [h('p', {}, '保存していない変更があります。初期化すると、開いているファイルは閉じます。先にファイルを保存してから、もう一度初期化してください。')] });
+    return;
+  }
+  const v = await modal({
+    title: 'アプリの設定などを初期化',
+    body: [
+      h('p', { class: 'info-box' }, `${KAGI_SAFE}初期化しても、${KAGI_UNTOUCHED}。`),
+      h('p', {}, 'このアプリが自分用に覚えている次のものを、空にして最初からやり直します。'),
+      h('ul', {},
+        h('li', {}, '設定（画面の色・自動ロックの時間など。初期値に戻ります）'),
+        h('li', {}, '最近使ったファイルの一覧（.kagi ファイルは［ファイルを開く］で開き直せます）'),
+        h('li', {}, '端末内の控え（古い版での上書きを見つけるための、この端末の記録）'),
+        h('li', {}, 'ロック中の下書き（保存していない変更）')),
+      host.isDesktop || host.isAndroid
+        ? h('p', { class: 'muted small' }, '消すのではなく、別の名前（store-old-日時）にして残すので、あとで元に戻すこともできます。開いているファイルは閉じます。')
+        : h('p', { class: 'muted small' }, '開いているファイルは閉じます。')],
+    buttons: [{ label: 'やめる', value: null }, { label: '初期化する', value: 'reset', kind: 'danger' }],
+  });
+  if (v !== 'reset') return;
+  let movedTo = null;
+  try { movedTo = await store.resetMemo(); } catch (e) {
+    await modal({ title: '初期化できませんでした', body: [h('p', { class: 'info-box' }, KAGI_SAFE), h('p', {}, `アプリの設定などを初期化できませんでした（${errText(e)}）。Kagibako を終了してから、もう一度試してください。`)] });
+    return;
+  }
+  await modal({
+    title: '初期化しました',
+    body: [h('p', { class: 'info-box' }, KAGI_SAFE),
+      h('p', {}, 'アプリの設定などを空にしました。読み込み直して、最初の画面からやり直します。.kagi ファイルは［ファイルを開く］で開いてください。'),
+      movedTo ? h('p', { class: 'muted small path-text' }, `前のものは次の場所に残しています（いらなければ消してかまいません）：${movedTo}`) : null],
+    buttons: [{ label: '読み込み直す', value: true, kind: 'primary' }],
+  });
+  S.dirty = false; // 確かめ済み（保存していない変更は無い）。読み込み直しの確認を出さない
+  location.reload();
+}
+
+async function bootInner() {
   if (window.top !== window.self) {
     // 他サイトに埋め込まれて操作を盗まれる（クリックジャッキング）のを防ぐ
     clear($app, h('p', { class: 'boot' }, 'このアプリは他のページに埋め込んで使えません。'));
@@ -138,10 +216,24 @@ async function boot() {
       h('p', { class: 'error' }, 'このページは安全な接続（https:// または http://localhost）で開いてください。暗号機能が使えません。')));
     return;
   }
+  // PC版・Android版：0.9.3 までは WebView の保存場所に置いていた設定・端末内の控えなどを、一度だけ本体のファイルへ写す
+  // （WebView の保存場所が応えなくても、待ち続けずに進む）
+  setBootStep('前の版のアプリの設定などの引き継ぎ');
+  const migrated = await store.migrateFromBrowserStorage().catch(() => 'failed');
+  // アプリの設定などが読めなくても止めない：store が初期値を返し、onMemoProblem で知らせる
+  setBootStep('アプリの設定などの読み込み');
   loadSettings(await store.getSetting('settings', {}));
+  setBootStep('設定を画面に当てはめる');
   if (!settings.deviceName) settings.deviceName = guessDevice();
   applyFontScale();
-  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  setBootStep('起動の準備');
+  if (migrated === 'migrated' && host.isDesktop) toast('前の版の設定と端末内の控えを、Kagibako のフォルダの中（data）へ移しました。「最近使ったファイル」は、一度［ファイルを開く］で開き直してください。', 9000);
+  else if (migrated === 'failed') toast(`前の版のアプリの設定などを引き継げませんでした（次の起動でもう一度試します）。${KAGI_SAFE}`, 9000);
+  if (host.isDesktop) {
+    // PC版はファイルが最初から手元にあるので、オフライン用の仕組み（Service Worker）は使わない。前の版で登録したものは外す
+    navigator.serviceWorker?.getRegistrations?.().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
+    globalThis.caches?.keys?.().then((ks) => ks.forEach((k) => caches.delete(k))).catch(() => {});
+  } else if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
   for (const ev of ['pointerdown', 'keydown', 'input', 'wheel', 'touchstart']) addEventListener(ev, () => { lastActivity = Date.now(); }, { passive: true });
@@ -157,32 +249,61 @@ async function boot() {
       if (e.target instanceof HTMLInputElement && (e.target.type === 'password' || e.target.dataset.ascii)) host.call('imeOff').catch(() => {});
     });
   }
-  if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
+  if (!host.isDesktop && navigator.storage?.persist) navigator.storage.persist().catch(() => {});
   if (host.isDesktop) {
-    try { hostInfo = await host.call('hello'); } catch { /* 旧版ホスト */ }
+    // 起動のときは本体の返事を長く待たない（返事が無くても画面は出す。ホットキーなどの設定は、設定を保存し直せば届く）
+    setBootStep('PC 版の本体とのやり取り');
+    try { hostInfo = await host.call('hello', {}, 5000); } catch { /* 旧版ホスト */ }
     host.on('hotkey', onHotkey);
     host.on('systemLock', () => { if (S.screen === 'main') lock(); }); // Windows のロック・スリープ・サインアウト
     host.on('minimized', () => { if (settings.lockOnHide && S.screen === 'main') lock(); });
     addEventListener('focus', refreshTargetLabels);
-    await applyHostConfig(true);
+    await applyHostConfig(true, 5000);
   }
   if (host.isAndroid) {
     document.body.classList.add('native-insets'); // ステータスバー等の余白はアプリ側で確保済み
-    try { hostInfo = await host.call('hello'); } catch { /* 無視 */ }
+    setBootStep('アプリ本体とのやり取り');
+    try { hostInfo = await host.call('hello', {}, 5000); } catch { /* 無視 */ }
     // 自動入力の設定画面から戻ってきたら状態を更新
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.screen === 'start') renderStart(); });
   }
+  setBootStep('アプリの設定など（同意）の読み込み');
   const agreed = (await store.getSetting('disclaimerAccepted', 0)) >= DISCLAIMER_VERSION;
+  setBootStep('前回のファイルを開く');
   if (agreed && settings.openLastOnStart !== false && (await openLastFile())) return;
+  setBootStep('最初の画面を出す');
   renderStart();
   if (!agreed) await disclaimerDialog(true);
 }
 
-async function applyHostConfig(quiet = false) {
+// アプリの設定など（設定・最近使ったファイルの一覧・端末内の控え・下書き）が読めない／壊れていた／書けないとき：
+// 止めずに、一度だけ知らせる。ID・パスワードの入った .kagi ファイルとは別のものなので、ファイルの開く・見る・保存はそのまま使える
+const memoProblemShown = new Set();
+store.onMemoProblem((kind, e) => {
+  if (memoProblemShown.has(kind)) return;
+  memoProblemShown.add(kind);
+  if (kind === 'write') {
+    toast(`アプリの設定などを保存できませんでした（${errText(e)}）。${KAGI_SAFE}.kagi ファイルへの保存には影響ありません。`, 12000);
+    return;
+  }
+  const what = kind === 'broken'
+    ? [h('p', {}, `${MEMO_WHAT}の一部が壊れていたので、その部分を初期値に戻しました。`),
+      h('p', { class: 'muted small path-text' }, `壊れていたものは消さずに、次の場所へ移してあります：${errText(e)}`)]
+    : [h('p', {}, `${MEMO_WHAT}を読めませんでした。設定は初期値で動きます。古い版での上書きを見つける仕組みは、今は働きません。`),
+      h('p', { class: 'muted small path-text' }, `理由：${errText(e)}`)];
+  modal({
+    title: 'アプリの設定などを読めませんでした',
+    body: [h('p', { class: 'info-box' }, KAGI_SAFE + 'ファイルはいつもどおり開いて、見て、保存できます。'), ...what,
+      h('p', { class: 'muted small' }, `何度も出るときは［アプリの設定などを初期化］で空にしてやり直せます（${KAGI_UNTOUCHED}）。`)],
+    buttons: [{ label: 'アプリの設定などを初期化', value: 'reset' }, { label: 'このまま使う', value: null, kind: 'primary' }],
+  }).then((v) => { if (v === 'reset') resetMemoFlow(); });
+});
+
+async function applyHostConfig(quiet = false, timeoutMs = 60_000) {
   if (!host.isDesktop) return;
   try {
-    await host.call('topMost', { on: !!settings.topMost }).catch(() => {});
-    await host.call('config', { hotkey: settings.hotkey, closeToTray: settings.closeToTray, minimizeToTray: settings.minimizeToTray !== false });
+    await host.call('topMost', { on: !!settings.topMost }, timeoutMs).catch(() => {});
+    await host.call('config', { hotkey: settings.hotkey, closeToTray: settings.closeToTray, minimizeToTray: settings.minimizeToTray !== false }, timeoutMs);
   } catch (e) {
     if (!quiet) throw e;
     toast(e.message, 6000);
@@ -2696,6 +2817,9 @@ async function settingsDialog() {
         h('p', { class: 'muted small' }, '保存のたびに、書き込んだファイルを読み直して、正しく保存できたかを確かめています。')),
       section('この端末',
         field('この端末の名前', dev, 'どの端末で保存したかを、ファイルの版の記録に残すために使います')),
+      section('アプリの設定などの初期化',
+        h('p', { class: 'muted small' }, `${MEMO_WHAT}を空にして、最初からやり直します。調子がおかしいときに使います。${KAGI_SAFE}${KAGI_UNTOUCHED}。`),
+        h('button', { class: 'btn small', onclick: () => resetMemoFlow() }, 'アプリの設定などを初期化…')),
       host.isDesktop ? section('自動バックアップ',
         checkRow(bkOn, '保存するたびに、暗号化したままのバックアップを残す'),
         field('バックアップ先', h('div', { class: 'row' }, bkDir,

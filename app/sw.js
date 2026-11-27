@@ -12,7 +12,7 @@ const ASSETS = [
   'icons/icon-512.png',
   'icons/logo.webp',
   'vendor/argon2.umd.min.js',
-  'js/app.js', 'js/ui.js', 'js/model.js', 'js/legacy.js', 'js/vault.js', 'js/history.js', 'js/merge.js',
+  'js/app.js', 'js/boot-watch.js', 'js/ui.js', 'js/model.js', 'js/legacy.js', 'js/vault.js', 'js/history.js', 'js/merge.js',
   'js/store.js', 'js/fileio.js', 'js/generator.js', 'js/host.js', 'js/autotype.js', 'js/csv.js', 'js/domain.js', 'js/brands.js', 'js/brandcheck.js', 'js/guide.js', 'js/help.js', 'js/ui-phone.js', 'js/ui-pc.js', 'js/practice.js', 'js/icons.js', 'js/psl-data.js', 'js/health.js', 'js/common-passwords.js', 'js/blowfish.js', 'js/bf-tables.js', 'js/sjis.js', 'js/xmlmini.js',
 ];
 

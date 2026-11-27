@@ -720,5 +720,25 @@ await test('最後に開いたファイルが先頭に来る（中身が同じ�
   assert.equal((await St.listKnown()).length, 2);
 });
 
+await test('端末内のメモが壊れて読めない・書けないときも、エラーにせず「無い」として進める（.kagi の開く・保存を止めない）', async () => {
+  // 開こうとすると必ず失敗する保存場所（WebView のデータベースが開けないときと同じ）
+  globalThis.indexedDB = { open() { const r = {}; setTimeout(() => { r.error = new Error('テスト用：開けない'); r.onerror?.(); }); return r; } };
+  try {
+    const St = await import(pathToFileURL(path.join(here, '..', 'app', 'js', 'store.js')).href + '?broken');
+    const problems = [];
+    St.onMemoProblem((kind) => problems.push(kind));
+    assert.equal(await St.get('settings', 'x'), undefined);
+    assert.equal(await St.getSetting('disclaimerAccepted', 0), 0);
+    assert.equal(await St.getKnown('kagi:abc'), undefined);
+    assert.deepEqual(await St.listKnown(), []);
+    await St.put('settings', 'x', 1);              // 書けなくても、エラーにならない
+    await St.del('drafts', 'x');
+    await St.recordHead('kagi:abc', 'a.kagi', { revId: 'r1', revision: 1, savedAt: '', device: '', contentHash: '', fileText: '' });
+    assert.ok(problems.includes('read') && problems.includes('write'), `知らせ: ${problems}`);
+  } finally {
+    delete globalThis.indexedDB;
+  }
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

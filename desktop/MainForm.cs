@@ -13,7 +13,8 @@ namespace Kagibako;
 /// ・アプリ内は https://kagibako.example/ という端末内だけの仮想ホストで提供（ネットワークには出ない）
 /// ・外部サイトへの移動は禁止し、URL を開く操作は既定のブラウザに渡す
 /// ・PC版だけの機能（自動入力・ホットキー・タスクトレイ・自動バックアップ）は、画面からのメッセージで実行する
-/// ・端末内データ（暗号化済みの控え等）は %LOCALAPPDATA%\Kagibako に保存
+/// ・端末内データ（暗号化済みの控え等）と自動バックアップは、Kagibako のフォルダの中（data・backup）に保存（Program.cs）
+/// ・端末内データと .kagi の読み書きは、ブラウザの保存場所を使わず、この本体が普通のファイルとして行う（HostFiles.cs）
 /// </summary>
 public sealed class MainForm : Form
 {
@@ -24,12 +25,13 @@ public sealed class MainForm : Form
 
     private readonly WebView2 _web = new() { Dock = DockStyle.Fill };
     private readonly string _dataDir;
+    private readonly HostFiles _files;     // 端末内データと .kagi の読み書き（ブラウザの保存場所は使わない）
     private readonly RegisteredWaitHandle? _activateWait;
     private int _clipToken;
     private bool _typing;
     private TaskCompletionSource<string>? _closeWait;
-    private static readonly string DefaultBackupDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Kagibako", "backup");
+    // 自動バックアップの既定の置き場所：Kagibako のフォルダの中（ドキュメントなど、ほかの場所には作らない）
+    private static readonly string DefaultBackupDir = Path.Combine(AppContext.BaseDirectory, "backup");
 
     private const int DefaultWidth = 720, DefaultHeight = 520;
     private readonly NotifyIcon _tray = new();
@@ -49,6 +51,7 @@ public sealed class MainForm : Form
     public MainForm(string dataDir, EventWaitHandle activate)
     {
         _dataDir = dataDir;
+        _files = new HostFiles(dataDir, this);
         // 起動直前まで使っていたウィンドウ（ログイン画面を開いたブラウザ等）を、自動入力の入力先にしておく
         _lastExternal = FindPreviousWindow();
         // 2つ目の起動が来たら前面に出る
@@ -235,6 +238,12 @@ public sealed class MainForm : Form
                     "topMost" => SetTopMost(m),
                     "closeReady" => CloseReady(m),
                     "pickFolder" => PickFolder(Str(m, "initial")),
+                    // 端末内データ・.kagi の読み書き（HostFiles。画面側の呼び方は Android 版と同じ）
+                    "store" => _files.Store(m),
+                    "openFile" => _files.OpenFile(),
+                    "readUri" => _files.ReadUri(m),
+                    "writeUri" => _files.WriteUri(m),
+                    "createFile" => _files.CreateFile(m),
                     "openFolder" => OpenFolder(Str(m, "dir")),
                     _ => throw new InvalidOperationException("未対応の要求です"),
                 };

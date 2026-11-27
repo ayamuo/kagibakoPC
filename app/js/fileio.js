@@ -1,11 +1,14 @@
 // ファイルの読み書き
-//   PC（アプリ版・Chrome / Edge）: 開いたファイルにそのまま上書き保存できる（File System Access API）
-//   Android版                   : システムのファイル選択画面で開き（Google ドライブ等も可）、そのまま上書き保存できる
-//   その他のブラウザ            : ファイル選択で開き、保存はダウンロード（→クラウドへアップロード）
+//   PC版（アプリ）  : Kagibako 本体が Windows のファイルの画面で開き、そのまま上書き保存する（ブラウザの仕組み・一時ファイルは使わない）
+//   Android版       : システムのファイル選択画面で開き（Google ドライブ等も可）、そのまま上書き保存できる
+//   Chrome / Edge   : 開いたファイルにそのまま上書き保存できる（File System Access API）
+//   その他のブラウザ: ファイル選択で開き、保存はダウンロード（→クラウドへアップロード）
+// PC版と Android版は、本体に同じ呼び方（openFile / readUri / writeUri / createFile）で頼む。ハンドルは { desktop|android: true, uri, name } というただのオブジェクト
 import { put, all, del } from './store.js';
 import * as host from './host.js';
 
-export const canHandleFiles = host.isAndroid || (typeof window !== 'undefined' && 'showOpenFilePicker' in window);
+const viaHost = host.isAndroid || host.isDesktop;
+export const canHandleFiles = viaHost || (typeof window !== 'undefined' && 'showOpenFilePicker' in window);
 
 const PICK_TYPES = [{ description: 'Kagibako データ', accept: { 'application/octet-stream': ['.kagi', '.idm'] } }];
 const NO_TIMEOUT = 0;
@@ -14,8 +17,10 @@ function readAsBytes(file) {
   return file.arrayBuffer().then((b) => new Uint8Array(b));
 }
 
-// Android版のハンドルは { android: true, uri, name } というただのオブジェクト
-const isAndroidHandle = (h) => !!h?.android;
+// 本体（PC版・Android版）が読み書きするファイルのハンドル
+const isHostHandle = (h) => !!h?.android || !!h?.desktop;
+const sameHostFile = (a, b) => (a?.desktop ? String(a.uri).toLowerCase() === String(b?.uri).toLowerCase() : a?.uri === b?.uri);
+const hostHandle = (uri, name, extra = {}) => (host.isDesktop ? { desktop: true, uri, name } : { android: true, uri, name, ...extra });
 
 /**
  * 受け渡しの途中で付いてしまった「.txt」を除いた名前（x.kagi.txt → x.kagi）。
@@ -28,9 +33,9 @@ export function cleanFileName(name) {
 /** 本当のファイル名に余計な .txt が付いているか */
 export const hasExtraTxt = (name) => cleanFileName(name) !== String(name || '');
 
-function fromAndroid(r) {
+function fromHost(r) {
   // 画面に出す名前は .txt を除いたもの。ハンドルには本当のファイル名を持つ（名前の直しに使う）
-  return { name: cleanFileName(r.name), bytes: host.fromB64(r.base64), lastModified: r.lastModified || Date.now(), handle: { android: true, uri: r.uri, name: r.name, canRename: !!r.canRename } };
+  return { name: cleanFileName(r.name), bytes: host.fromB64(r.base64), lastModified: r.lastModified || Date.now(), handle: hostHandle(r.uri, r.name, { canRename: !!r.canRename }) };
 }
 
 /**
@@ -39,25 +44,26 @@ function fromAndroid(r) {
  */
 export async function renameAndroidFile(handle, newName) {
   const r = await host.call('renameFile', { uri: handle.uri, name: newName });
-  for (const { key, value } of await all('handles')) if (value.handle?.uri === handle.uri) await del('handles', key);
+  for (const { key, value } of await all('handles')) if (sameHostFile(handle, value.handle)) await del('handles', key);
   const next = { android: true, uri: r.uri, name: r.name, canRename: true };
   await rememberHandle(next);
   return next;
 }
 
 async function fromHandle(handle) {
-  if (isAndroidHandle(handle)) return fromAndroid(await host.call('readUri', { uri: handle.uri }));
+  if (isHostHandle(handle)) return fromHost(await host.call('readUri', { uri: handle.uri }));
   const file = await handle.getFile();
   return { name: file.name, bytes: await readAsBytes(file), lastModified: file.lastModified, handle };
 }
 
 /** ファイルを開く。キャンセル時は null */
 export async function pickFile() {
-  if (host.isAndroid) {
+  if (viaHost) {
     const r = await host.call('openFile', {}, NO_TIMEOUT);
     if (r?.cancelled) return null;
-    const f = fromAndroid(r);
-    await rememberHandle(f.handle);
+    const f = fromHost(r);
+    // 「最近使ったファイル」には Kagibako のファイルだけを入れる（CSV の取り込みで選んだファイルは入れない）
+    if (/\.(kagi|idm)(\.txt)?$/i.test(r.name || '')) await rememberHandle(f.handle);
     return f;
   }
   if (canHandleFiles) {
@@ -88,7 +94,7 @@ export async function pickFile() {
 /** 上書き保存前の確認用に、ハンドルから現在の内容を読み直す */
 export async function rereadHandle(handle) {
   try {
-    if (!isAndroidHandle(handle) && (await handle.queryPermission?.({ mode: 'read' })) === 'denied') return null;
+    if (!isHostHandle(handle) && (await handle.queryPermission?.({ mode: 'read' })) === 'denied') return null;
     return await fromHandle(handle);
   } catch {
     return null;
@@ -102,7 +108,7 @@ async function ensureWritable(handle) {
 }
 
 export async function writeHandle(handle, data) {
-  if (isAndroidHandle(handle)) {
+  if (isHostHandle(handle)) {
     await host.call('writeUri', { uri: handle.uri, base64: host.toB64(data) });
     return;
   }
@@ -126,10 +132,10 @@ export function download(name, data) {
 
 /** 名前を付けて保存。アプリ版・PC では保存先を選ぶ画面、それ以外はダウンロード */
 export async function saveAs(name, data) {
-  if (host.isAndroid) {
+  if (viaHost) {
     const r = await host.call('createFile', { name, base64: host.toB64(data) }, NO_TIMEOUT);
     if (r?.cancelled) return { cancelled: true };
-    const handle = { android: true, uri: r.uri, name: r.name };
+    const handle = hostHandle(r.uri, r.name);
     await rememberHandle(handle);
     return { handle, name: r.name };
   }
@@ -158,7 +164,7 @@ async function rememberHandleInner(handle) {
   if (!handle) return;
   const items = await all('handles');
   for (const { key, value } of items) {
-    const same = isAndroidHandle(handle) ? value.handle?.uri === handle.uri : await value.handle.isSameEntry?.(handle);
+    const same = isHostHandle(handle) ? sameHostFile(handle, value.handle) : await value.handle?.isSameEntry?.(handle);
     if (same) await del('handles', key);
   }
   await put('handles', `h-${Date.now()}`, { handle, name: handle.name, at: Date.now() });
@@ -172,7 +178,7 @@ export async function recentHandles() {
 }
 
 export async function openRecent(entry) {
-  if (isAndroidHandle(entry.handle)) return fromHandle(entry.handle);
+  if (isHostHandle(entry.handle)) return fromHandle(entry.handle);
   const ok = (await entry.handle.queryPermission({ mode: 'read' })) === 'granted' || (await entry.handle.requestPermission({ mode: 'read' })) === 'granted';
   if (!ok) throw new Error('ファイルへのアクセスが許可されませんでした');
   return fromHandle(entry.handle);
@@ -180,8 +186,8 @@ export async function openRecent(entry) {
 
 export const forgetRecent = (key) => del('handles', key);
 
-/** 確認の画面を出さずに読めるか（Android は常に読める。PC 版などは、許可が残っているときだけ） */
+/** 確認の画面を出さずに読めるか（PC版・Android版は常に読める。ブラウザは、許可が残っているときだけ） */
 export async function canReadWithoutAsking(entry) {
-  if (isAndroidHandle(entry.handle)) return true;
+  if (isHostHandle(entry.handle)) return true;
   try { return (await entry.handle.queryPermission?.({ mode: 'read' })) === 'granted'; } catch { return false; }
 }
