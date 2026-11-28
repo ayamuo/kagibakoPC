@@ -720,6 +720,30 @@ await test('最後に開いたファイルが先頭に来る（中身が同じ�
   assert.equal((await St.listKnown()).length, 2);
 });
 
+await test('日付は端末の言語に関係なく YYYY/MM/DD で表示し、いろいろな書き方を読める', async () => {
+  const { fmtDate, parseDateText } = await appJs('ui.js');
+  assert.equal(fmtDate('2026-11-28'), '2026/11/28');
+  assert.equal(fmtDate(''), '');
+  assert.equal(fmtDate(undefined), '');
+  for (const t of ['2026/11/28', '2026-11-28', '2026.11.28', '20261128', '2026年11月28日', '２０２６／１１／２８', ' 2026/11/28 ']) assert.equal(parseDateText(t), '2026-11-28', t);
+  assert.equal(parseDateText('2026/1/5'), '2026-01-05');
+  assert.equal(parseDateText(''), '');
+  for (const t of ['2026/02/30', '2026/13/01', '11/28/2026', 'あした', '2026/11']) assert.equal(parseDateText(t), null, t);
+  assert.equal(parseDateText('2028/02/29'), '2028-02-29'); // うるう年
+});
+
+await test('説明の文の中の絵（{i:名前}）と「ボタンの絵の意味」の絵が、どれも本当にある', async () => {
+  const { ICONS } = await appJs('icons.js');
+  const names = new Set();
+  for (const f of ['help.js', 'app.js']) {
+    for (const m of fs.readFileSync(path.join(here, '..', 'app', 'js', f), 'utf8').matchAll(/\{i:([a-z0-9-]+)\}/g)) names.add(m[1]);
+  }
+  const { HOWTO } = await appJs('help.js');
+  for (const s of HOWTO.sections) for (const [n] of s.icons || []) names.add(n);
+  assert.ok(names.size > 10, `絵の数が少なすぎる: ${names.size}`);
+  for (const n of names) assert.ok(ICONS[n], `ない絵: ${n}`);
+});
+
 await test('端末内のメモが壊れて読めない・書けないときも、エラーにせず「無い」として進める（.kagi の開く・保存を止めない）', async () => {
   // 開こうとすると必ず失敗する保存場所（WebView のデータベースが開けないときと同じ）
   globalThis.indexedDB = { open() { const r = {}; setTimeout(() => { r.error = new Error('テスト用：開けない'); r.onerror?.(); }); return r; } };

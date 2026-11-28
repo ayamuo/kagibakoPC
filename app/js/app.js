@@ -1,5 +1,5 @@
 // Kagibako（鍵箱） — メイン画面
-import { h, clear, toast, modal, confirmDialog, passwordPrompt, fmtDateTime, capsWarning, abandonAllModals } from './ui.js';
+import { h, clear, toast, modal, confirmDialog, passwordPrompt, fmtDateTime, fmtDate, parseDateText, capsWarning, abandonAllModals } from './ui.js';
 import * as M from './model.js';
 import * as L from './legacy.js';
 import * as X from './vault.js';
@@ -351,7 +351,9 @@ async function renderStart() {
         h('h2', {}, '使い方'),
         h('ol', {},
           h('li', {}, 'データは .kagi ファイル（Argon2id + AES-256-GCM で暗号化）に保存します。'),
-          h('li', {}, 'スマホとはクラウド（Google ドライブ・OneDrive・iCloud 等）にファイルを置いて受け渡しします。'),
+          h('li', {}, isPhone()
+            ? 'ファイルはスマホの中にも、Google ドライブなどのクラウドにも置けます（クラウドに置けば、PC 版と同じファイルも使えます）。'
+            : 'スマホとはクラウド（Google ドライブ・OneDrive・iCloud 等）にファイルを置いて受け渡しします。'),
           h('li', {}, '開いたファイルがこの端末で扱った版より古いと「デグレ」として警告し、新しい版へ戻せます。')),
         h('div', { class: 'row wrap' },
           h('button', { class: 'btn ib', onclick: () => helpDialog(HOWTO) }, icon('help'), '使い方を見る'),
@@ -996,7 +998,7 @@ function itemRow(it, sub = null) {
   return h('div', { class: `node item${S.sel === it.id ? ' sel' : ''}`, dataset: { id: it.id }, draggable: treeDraggable() ? 'true' : null },
     h('button', { class: 'label', onclick: () => select(it.id) },
       settings.expiryNotify !== 'off' && M.isExpired(it) ? h('span', { class: 'ticon tstat', title: '有効期限切れ' }, icon('expired'))
-        : settings.expiryNotify !== 'off' && M.isExpiringSoon(it, settings.expiryWarnDays) ? h('span', { class: 'ticon tstat', title: `有効期限が近い（${it.expirationDate}）` }, icon('expiring')) : h('span', { class: 'ticon', 'aria-hidden': 'true' }, icon('key')),
+        : settings.expiryNotify !== 'off' && M.isExpiringSoon(it, settings.expiryWarnDays) ? h('span', { class: 'ticon tstat', title: `有効期限が近い（${fmtDate(it.expirationDate)}）` }, icon('expiring')) : h('span', { class: 'ticon', 'aria-hidden': 'true' }, icon('key')),
       it.name || '(名前なし)',
       sub ? h('span', { class: 'muted small sub' }, sub) : null));
 }
@@ -1101,7 +1103,7 @@ function overview() {
       h('tr', {}, h('th', {}, '保存方法'), h('td', {}, S.file?.handle ? 'このファイルに上書き保存' : 'ダウンロード（→クラウドへアップロード）'))),
     auditCard,
     pwCard,
-    exp.length ? h('section', {}, h('h3', {}, '有効期限切れ'), h('ul', {}, exp.map((x) => h('li', {}, h('button', { class: 'link', onclick: () => select(x.node.id) }, x.node.name), ` (${x.node.expirationDate})`)))) : null,
+    exp.length ? h('section', {}, h('h3', {}, '有効期限切れ'), h('ul', {}, exp.map((x) => h('li', {}, h('button', { class: 'link', onclick: () => select(x.node.id) }, x.node.name), ` (${fmtDate(x.node.expirationDate)})`)))) : null,
     h('section', { class: 'card hint-card small' },
       h('h3', {}, 'はじめに'),
       h('ul', {},
@@ -1396,7 +1398,8 @@ function itemView({ node: it, parent, path }) {
     v.hideEmail ? null : simpleRow('email', 'メール', mailBtn),
     v.hideFile ? null : simpleRow('file', 'ファイル', fileBtn),
     v.hideDates ? null : h('div', { class: 'frow dates' },
-      h('label', {}, h('span', { class: 'flabel' }, '発行日'), h('input', { type: 'date', value: it.issueDate || '', readonly: ro, oninput: set('issueDate') })),
+      h('label', {}, h('span', { class: 'flabel' }, '発行日'), dateField({ value: it.issueDate, readonly: ro, label: '発行日',
+        onChange: (iso) => { if (ro) return; it.issueDate = iso; touch(it); } })),
       expiryField(it, ro)),
     autoTypeSection(),
     h('label', { class: 'field' }, h('span', {}, 'メモ'), h('textarea', { rows: settings.density === 'compact' ? 4 : 6, oninput: set('comment'), readonly: ro, spellcheck: 'false' }, it.comment ?? '')),
@@ -1410,12 +1413,34 @@ function itemView({ node: it, parent, path }) {
     h('p', { class: 'muted small' }, `更新: ${fmtDateTime(it.modified)}`));
 }
 
+/**
+ * 日付の欄。端末の言語の設定に関係なく YYYY/MM/DD で表示・入力する
+ * （ブラウザの日付の欄は、英語の設定の端末などで MM/DD/YYYY になるため）。［選ぶ］でカレンダーからも選べる
+ */
+function dateField({ value, readonly = false, disabled = false, cls = '', label, onChange }) {
+  let current = value || '';
+  const text = h('input', { type: 'text', inputmode: 'numeric', class: `date-text ${cls}`.trim(), placeholder: 'YYYY/MM/DD', value: fmtDate(current),
+    readonly, disabled, spellcheck: 'false', autocomplete: 'off', 'aria-label': label, dataset: { ascii: '1' } });
+  // カレンダーを出すためだけの、見えない日付の欄
+  const picker = h('input', { type: 'date', class: 'date-picker-hidden', tabindex: '-1', 'aria-hidden': 'true', value: current });
+  const commit = (iso) => { current = iso; text.value = fmtDate(iso); picker.value = iso; onChange(iso); };
+  text.addEventListener('change', () => {
+    const iso = parseDateText(text.value);
+    if (iso === null) { toast('日付は 2026/11/28 のように入れてください'); text.value = fmtDate(current); return; }
+    commit(iso);
+  });
+  picker.addEventListener('change', () => commit(picker.value));
+  const pick = h('button', { type: 'button', class: 'btn small date-pick', disabled: readonly || disabled, title: `${label}をカレンダーから選ぶ`,
+    onclick: () => { try { picker.showPicker(); } catch { picker.focus(); picker.click(); } } }, '選ぶ');
+  return h('span', { class: 'date-field' }, text, pick, picker);
+}
+
 /** 有効期限の欄（「期限なし」を選べる） */
 function expiryField(it, ro) {
   const none = !it.expirationDate;
-  const date = h('input', { type: 'date', value: it.expirationDate || '', readonly: ro, disabled: none,
-    class: settings.expiryNotify === 'off' ? '' : M.isExpired(it) ? 'expired' : M.isExpiringSoon(it, settings.expiryWarnDays) ? 'soon' : '',
-    oninput: (e) => { if (ro) return; it.expirationDate = e.target.value; touch(it); renderTree(); } });
+  const date = dateField({ value: it.expirationDate, readonly: ro, disabled: none, label: '有効期限',
+    cls: settings.expiryNotify === 'off' ? '' : M.isExpired(it) ? 'expired' : M.isExpiringSoon(it, settings.expiryWarnDays) ? 'soon' : '',
+    onChange: (iso) => { if (ro) return; it.expirationDate = iso; touch(it); renderTree(); } });
   const noneChk = h('input', { type: 'checkbox', checked: none, disabled: ro, onchange: (e) => {
     if (ro) return;
     it.expirationDate = e.target.checked ? '' : M.addDaysISO(M.todayISO(), settings.validDays || 365);
@@ -1490,7 +1515,7 @@ async function expiredListDialog() {
             ro ? null : cb,
             h('span', { class: 'ticon', title: M.isExpired(e.node) ? '有効期限切れ' : '有効期限が近い' }, icon(M.isExpired(e.node) ? 'expired' : 'expiring')),
             h('button', { class: 'link', onclick: (ev) => { picked = e.node.id; ev.target.closest('.overlay').querySelector('.modal-head .icon-btn').click(); } }, e.node.name || '(名前なし)'),
-            h('span', { class: 'muted small' }, `期限 ${e.node.expirationDate}　${e.path.join(' / ')}`));
+            h('span', { class: 'muted small' }, `期限 ${fmtDate(e.node.expirationDate)}　${e.path.join(' / ')}`));
         })),
         ro ? null : h('p', { class: 'muted small' }, 'カードの更新などで期限が変わったら、アイテムの有効期限を直してください。期限を管理しないアイテムは「期限なし」にできます（パスワードを定期的に変える必要はありません）。')]
       : h('p', {}, '期限切れ・期限が近いアイテムはありません。')],
@@ -2424,7 +2449,7 @@ async function printDialog() {
       h('td', {}, withPw.checked ? node.password : '••••••'),
       h('td', {}, [node.item1 ? `${node.item1Name || '項目1'}: ${node.item1}` : '', node.item2 ? `${node.item2Name || '項目2'}: ${node.item2}` : '', node.serialNumber ? `シリアル: ${node.serialNumber}` : ''].filter(Boolean).join('\n')),
       h('td', {}, node.url),
-      h('td', {}, node.expirationDate || ''),
+      h('td', {}, fmtDate(node.expirationDate)),
       withMemo.checked ? h('td', {}, node.comment) : null));
   }
   const root = h('div', { id: 'print-root' },
@@ -2513,7 +2538,7 @@ async function profileDialog() {
   await modal({
     title: '個人情報',
     wide: true,
-    body: [host.isDesktop ? h('p', { class: 'muted small' }, 'キーボードの絵のボタンで、その項目を直前のウィンドウ（申し込みフォームなど）に入力できます。') : null,
+    body: [host.isDesktop ? h('p', { class: 'muted small' }, richText('{i:autotype}（自動入力）のボタンで、その項目を直前のウィンドウ（申し込みフォームなど）に入力できます。')) : null,
       M.PROFILE_FIELDS.map(([k, label]) => row(k, label, p, true)),
       h('h3', {}, '新規アイテムの既定の項目名'),
       row('accountName', 'ID欄', S.vault.defaults), row('passwordName', 'パスワード欄', S.vault.defaults),
@@ -3332,14 +3357,41 @@ async function verifyMasterPassword(p) {
 }
 
 // ================= 安全ガイド・免責事項 =================
-function guideBody(doc) {
+/**
+ * 説明の文の中の {i:絵の名前} を、実際のボタンの絵にして返す（文字と同じ大きさ）。
+ * 「さいころの絵」と言葉で書くより、本物の絵を見せたほうが分かりやすいため
+ */
+function richText(t) {
+  if (typeof t !== 'string' || !t.includes('{i:')) return t;
+  return t.split(/(\{i:[a-z0-9-]+\})/).filter(Boolean).map((part) => {
+    const m = part.match(/^\{i:([a-z0-9-]+)\}$/);
+    if (!m) return part;
+    const el = icon(m[1]);
+    el.classList.add('ic-inline');
+    return el;
+  });
+}
+
+/**
+ * 安全ガイド・免責事項・使い方・よくある質問の本文。
+ * collapsible：使い方は節の題だけ、よくある質問は質問だけを並べ、押すと中身が開く（知りたいところだけ読めるように）
+ */
+function guideBody(doc, { collapsible = false } = {}) {
+  const rt = richText;
+  const content = (s) => [
+    s.p ? s.p.map((t) => h('p', {}, rt(t))) : null,
+    s.list?.length ? h('ul', {}, s.list.map((t) => h('li', {}, rt(t)))) : null,
+    // ボタンの絵の意味：実際の絵と意味を1行ずつ
+    s.icons?.length ? h('ul', { class: 'icon-legend' }, s.icons.map(([ic, t]) => h('li', {}, icon(ic), h('span', {}, t)))) : null,
+    s.items ? (collapsible
+      ? h('div', { class: 'faq-list' }, s.items.map(([t, d]) => h('details', { class: 'faq-q' }, h('summary', {}, t), h('p', {}, rt(d)))))
+      : h('dl', {}, s.items.map(([t, d]) => [h('dt', {}, t), h('dd', {}, rt(d))]))) : null,
+  ];
   return [
     doc.intro ? h('p', { class: 'lead' }, doc.intro) : null,
-    doc.sections.map((s) => h('section', { class: 'guide-sec' },
-      h('h3', {}, s.h),
-      s.p ? s.p.map((t) => h('p', {}, t)) : null,
-      s.list ? h('ul', {}, s.list.map((t) => h('li', {}, t))) : null,
-      s.items ? h('dl', {}, s.items.map(([t, d]) => [h('dt', {}, t), h('dd', {}, d)])) : null)),
+    doc.sections.map((s) => (collapsible && !s.items
+      ? h('details', { class: 'guide-sec guide-fold' }, h('summary', {}, s.h), content(s))
+      : h('section', { class: 'guide-sec' }, h('h3', {}, s.h), content(s)))),
   ];
 }
 
@@ -3356,7 +3408,7 @@ async function helpDialog(doc) {
   const v = await modal({
     title: doc.title,
     wide: true,
-    body: guideBody(forHost(doc, { isDesktop: host.isDesktop, isAndroid: host.isAndroid, isPhone: isPhone() })),
+    body: guideBody(forHost(doc, { isDesktop: host.isDesktop, isAndroid: host.isAndroid, isPhone: isPhone() }), { collapsible: true }),
     buttons: [...helpTabs().filter(([k]) => k !== which).map(([k, label]) => ({ label, value: k })), { label: '閉じる', value: null, kind: 'primary' }],
   });
   return openHelpTab(v);
@@ -3520,7 +3572,7 @@ async function passwordCheckDialog() {
         h('span', { class: 'chip ok' }, `問題なし ${r.okCount} 件`)),
       !r.reused.length && !weak.length ? h('p', { class: 'info-box small' }, icon('ok'), ' 使い回しや弱いパスワードは見つかりませんでした。') : null,
       r.reused.length || weak.length ? h('div', { class: 'info-box small' },
-        h('strong', {}, '直し方：'), 'そのサイトにログインして「パスワードの変更」を開き、Kagibako のアイテムのパスワード欄の［さいころの絵］で新しいパスワードを作って入れます。',
+        h('strong', {}, '直し方：'), richText('そのサイトにログインして「パスワードの変更」を開き、Kagibako のアイテムのパスワード欄の {i:generate}（パスワードを作る）で新しいパスワードを作って入れます。'),
         h('br'), 'メール・銀行・カード・通販など、乗っ取られると困るものから先に直してください。') : null,
       r.reused.length ? h('section', { class: 'audit-sec danger' },
         h('h3', {}, icon('warning'), ` 使い回し（${r.reused.length} 組・${r.reusedItems} 件）`),
@@ -3674,9 +3726,39 @@ window.__kagibakoBack = () => {
   if (closeBtn) { closeBtn.click(); return true; }
   if (document.querySelector('.overlay')) return true; // 閉じられないダイアログ（同意待ちなど）
   if (S.screen === 'main' && S.mobileDetail) { setMobileDetail(false); return true; }
-  if (S.screen === 'main' && isPhone() && !S.search.trim() && phoneUp()) return true;
+  if (S.screen === 'main' && isPhone() && S.search.trim()) {
+    // 検索中は、まず検索をやめる
+    S.search = '';
+    const box = document.querySelector('.search'); if (box) box.value = '';
+    renderTree();
+    return true;
+  }
+  if (S.screen === 'main' && isPhone() && phoneUp()) return true;
+  if (S.screen === 'main' && isPhone()) {
+    // いちばん上で［戻る］：うっかり押しで閉じないよう、2秒以内にもう一度押したらファイルを閉じる
+    if (Date.now() - lastBackAt < 2000) { lastBackAt = 0; closeFileByBack(); return true; }
+    lastBackAt = Date.now();
+    toast('もう一度［戻る］を押すとファイルを閉じます', 2000);
+    return true;
+  }
   return false;
 };
+let lastBackAt = 0;
+
+/** スマホの［戻る］でファイルを閉じる。保存していない変更があれば、保存するか聞く */
+async function closeFileByBack() {
+  if (S.dirty) {
+    const v = await modal({
+      title: 'ファイルを閉じる',
+      body: [h('p', {}, '保存していない変更があります。保存してから閉じますか？')],
+      buttons: [{ label: 'やめる', value: null }, { label: '保存せずに閉じる', value: 'discard', kind: 'danger' }, { label: '保存して閉じる', value: 'save', kind: 'primary' }],
+    });
+    if (!v) return;
+    if (v === 'save') { await save(); if (S.dirty) return; } // 保存できなかった・やめたときは閉じない
+  }
+  if (S.screen !== 'main') return;
+  wipeSession(); S.file = null; renderStart();
+}
 
 /**
  * Android版：自動入力サービスの案内。

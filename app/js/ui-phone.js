@@ -1,6 +1,6 @@
 // Kagibako — スマホの画面（Android版、または幅の狭い画面）
 // 一覧 → アイテム の2段の画面と、☰ メニュー。暗号・ファイル形式・データの扱いは app.js や各モジュールと共通
-import { h, clear, modal, fmtDateTime, toast } from './ui.js';
+import { h, clear, modal, fmtDateTime, fmtDate, toast } from './ui.js';
 import { icon } from './icons.js';
 import * as M from './model.js';
 import * as host from './host.js';
@@ -431,7 +431,7 @@ function phoneItemView({ node: it, path }) {
     chk.lookalike ? h('div', { class: 'warn small danger-box' }, icon('warning'), ' 偽ドメインの疑い：', BC.lookalikeText(chk.lookalike))
       : chk.level === 'ok' ? h('div', { class: 'small m-okline' }, icon('ok'), official ? ` ${official.name}の公式ドメイン` : ' 自分で確認した公式ドメイン') : null,
     fields.length ? fields : h('p', { class: 'muted' }, 'まだ何も入っていません。'),
-    v.hideDates || !it.expirationDate ? null : h('p', { class: 'muted small' }, `有効期限: ${it.expirationDate}`),
+    v.hideDates || !it.expirationDate ? null : h('p', { class: 'muted small' }, `有効期限: ${fmtDate(it.expirationDate)}`),
     it.passwordHistory?.length ? h('button', { class: 'link small', onclick: () => passwordHistoryDialog(it) }, `変更前のパスワード（${it.passwordHistory.length} 件）`) : null,
     settings.readOnly ? h('p', { class: 'muted small' }, '👁 閲覧のみモードです（メニューから編集できるようにできます）')
       : h('button', { class: 'btn m-edit ib', onclick: () => { S.mobileEdit = true; renderDetail(); } }, icon('edit'), '編集する'),

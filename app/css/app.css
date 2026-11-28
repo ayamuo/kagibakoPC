@@ -250,7 +250,7 @@ input.expired { border-color: var(--danger); color: var(--danger); }
 .frow .flabel, .dates .flabel { font-size: .85rem; color: var(--muted); }
 .fname-input { font-size: .85rem; color: var(--muted); }
 .fbtns { display: flex; gap: .3rem; }
-.frow.dates { grid-template-columns: 1fr 1fr; }
+.frow.dates { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .frow.dates label { display: grid; gap: .2rem; }
 .meter { font-size: .8rem; margin: -.2rem 0 .3rem 9.5rem; }
 .meter.weak { color: var(--danger); }
@@ -304,7 +304,7 @@ input.expired { border-color: var(--danger); color: var(--danger); }
   body.detail-open .topbar .back { display: inline-block; font-size: 1.6rem; }
   .frow { grid-template-columns: 1fr auto; }
   .frow > .flabel, .frow > .fname-input { grid-column: 1 / -1; }
-  .frow.dates { grid-template-columns: 1fr 1fr; }
+  .frow.dates { grid-template-columns: 1fr; }
   .meter { margin-left: 0; }
   .node .label { padding: .6rem .4rem; }
   .modal { max-height: calc(100vh - 1rem); }
@@ -338,6 +338,24 @@ input.expired { border-color: var(--danger); color: var(--danger); }
 .guide-sec li { margin: .25rem 0; }
 .guide-sec dt { font-weight: 600; margin-top: .6rem; }
 .guide-sec dd { margin: .15rem 0 0 1rem; }
+/* 使い方：節の題だけを並べ、押すと中身が開く */
+.guide-fold { margin-bottom: 0; border-top: 1px solid var(--line); }
+.guide-fold:last-child { border-bottom: 1px solid var(--line); }
+.guide-fold > summary { cursor: pointer; padding: .6rem .2rem; font-weight: 600; list-style-position: inside; }
+.guide-fold[open] > summary { color: var(--accent); }
+.guide-fold > ul { margin-bottom: .7rem; }
+/* 説明の文の中の絵（{i:名前}）：文字と同じ大きさで並べる */
+.ic.ic-inline { width: 1.25em; height: 1.25em; vertical-align: -.25em; margin: 0 .1em; }
+/* ボタンの絵の意味：実際の絵と意味を1行ずつ */
+.icon-legend { list-style: none; padding-left: .2rem !important; display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .15rem .8rem; }
+.icon-legend li { display: flex; align-items: center; gap: .6rem; margin: .15rem 0; }
+.icon-legend .ic { width: 1.5rem; height: 1.5rem; flex: none; }
+/* よくある質問：質問だけを並べ、押すと答えが開く */
+.faq-list { margin-top: .2rem; }
+.faq-q { border-top: 1px solid var(--line); }
+.faq-q > summary { cursor: pointer; padding: .55rem .2rem; list-style-position: inside; }
+.faq-q[open] > summary { font-weight: 600; color: var(--accent); }
+.faq-q > p { margin: 0 0 .7rem 1.1rem; }
 .csv-preview { overflow: auto; max-height: 30vh; }
 @media (max-width: 560px) {
   .site-panel { margin-left: 0; }
@@ -377,6 +395,11 @@ input.soon { border-color: #b7791f; color: #b7791f; }
 .btn.small.on { border-color: var(--accent); background: var(--accent-soft); }
 .check.nowrap { white-space: nowrap; margin: 0 0 0 .5rem; }
 .frow.dates .row > input { flex: 1; }
+/* 日付の欄（YYYY/MM/DD の文字の欄＋［選ぶ］。カレンダーは見えない日付の欄で出す） */
+.date-field { position: relative; display: flex; align-items: center; gap: .3rem; min-width: 0; flex: 1; }
+.date-field .date-text { flex: 1; min-width: 0; width: 7.5em; }
+.date-field .date-pick { flex: none; }
+.date-field .date-picker-hidden { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0; }
 .frow.dates label.check { display: inline-flex; align-items: center; gap: .3rem; }
 
 /* ---- コンパクト表示（PC版の既定。詰まった画面） ---- */
@@ -400,7 +423,7 @@ body.compact { font-size: .8125rem; line-height: 1.4; }
 .compact .field { margin: .3rem 0; }
 .compact .field > span { font-size: .75rem; margin-bottom: .1rem; }
 .compact .frow { grid-template-columns: 7.5rem 1fr auto; gap: .3rem; margin: .2rem 0; }
-.compact .frow.dates { grid-template-columns: 1fr 1fr; }
+.compact .frow.dates { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .compact .fbtns { gap: .2rem; }
 .compact .meter { margin: -.1rem 0 .15rem 7.8rem; font-size: .72rem; }
 .compact .site-panel { margin: -.1rem 0 .3rem 7.8rem; }
@@ -426,6 +449,7 @@ body.compact { font-size: .8125rem; line-height: 1.4; }
 .compact .center-card { --card-pad: 1.1rem; }
 @media (max-width: 560px) {
   .compact .frow { grid-template-columns: 1fr auto; }
+  .compact .frow.dates { grid-template-columns: 1fr; }
   .compact .meter, .compact .site-panel { margin-left: 0; }
 }
 
@@ -811,7 +835,7 @@ body.detail-open .fab { display: none; }
 .phone .topbar .icon-btn.mobile-only:not(.back) { display: inline-block; }
 .phone .frow { grid-template-columns: 1fr auto; }
 .phone .frow > .flabel, .phone .frow > .fname-input { grid-column: 1 / -1; }
-.phone .frow.dates { grid-template-columns: 1fr 1fr; }
+.phone .frow.dates { grid-template-columns: 1fr; }
 .phone .meter, .phone .site-panel, .phone .pw-colored { margin-left: 0; }
 .phone .topbar .title { margin-left: 0; }
 .phone .modal { max-height: calc(100vh - 1rem); }

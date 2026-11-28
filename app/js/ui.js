@@ -155,6 +155,30 @@ export async function passwordPrompt(title, message, { confirm = false, check = 
   return res === true ? value : null;
 }
 
+/** 日付（YYYY-MM-DD）を YYYY/MM/DD で表示する。端末の言語の設定に左右されない */
+export function fmtDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  return m ? `${m[1]}/${m[2]}/${m[3]}` : '';
+}
+
+/**
+ * 入力された日付の文字を YYYY-MM-DD にする。空なら ''、読めない・無い日付なら null。
+ * 2026/11/28・2026-11-28・2026.11.28・20261128・2026年11月28日・全角数字 を受け付ける
+ */
+export function parseDateText(text) {
+  const t = String(text || '').normalize('NFKC').trim();
+  if (!t) return '';
+  // 区切りは「/ - .」のどれかを2回、または「年 月 日」、または区切りなしの8けた（2026/11 などは読まない）
+  const m = /^(\d{4})([/\-.])(\d{1,2})\2(\d{1,2})$/.exec(t)?.filter((_, i) => i !== 2)
+    || /^(\d{4})年(\d{1,2})月(\d{1,2})日?$/.exec(t)
+    || /^(\d{4})(\d{2})(\d{2})$/.exec(t);
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
+  return `${m[1]}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 export function fmtDateTime(isoOrMs) {
   if (!isoOrMs) return '—';
   const d = new Date(isoOrMs);
